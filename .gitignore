@@ -1,1 +1,5 @@
 /target
+/database
+/resources
+/gdx*
+copy-all.sh
