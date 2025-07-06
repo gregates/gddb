@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek};
@@ -6,6 +7,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+use lib_gddb::affix::Affix;
+use lib_gddb::affix_table::AffixTable;
 use lib_gddb::arc::Archive;
 use lib_gddb::arz::{Database, DatabaseValue, RawRecord, Record};
 use lib_gddb::tags;
@@ -25,7 +28,7 @@ const TAGS_FOA: &str = "gdx3/resources/Text_EN.arc";
 struct Args {
     #[arg(short, long)]
     /// Path to Grim Dawn installation
-    install_path: OsString,
+    install_path: Option<OsString>,
 
     #[arg(short, long)]
     /// Restrict lookup to database for nth expansion (0 = base game)
@@ -45,6 +48,8 @@ enum Difficulty {
 
 #[derive(Subcommand, Debug)]
 enum Action {
+    /// Look up an item by name and list the records it appears in.
+    Item { name: OsString },
     /// Show a fully resolved loot table
     LootTable {
         #[arg(short, long, default_value_t, value_enum)]
@@ -55,18 +60,21 @@ enum Action {
         vendor: bool,
         path: OsString,
     },
-    /// Look up an item by name and list the records it appears in.
-    Item { name: OsString },
-    /// Show the next level of the file tree, starting at the provided path.
-    Ls { path: Option<OsString> },
-    /// Print the specified database record.
-    Show { path: OsString },
+    /// Print the specified database record, or list the file tree at the path specified.
+    Show { path: Option<OsString> },
 }
 
 fn main() {
     let args = Args::parse();
 
-    let install_path = PathBuf::from(args.install_path);
+    let install_path = args
+        .install_path
+        .or(env::var("GRIM_DAWN_INSTALL_PATH").ok().map(|s| s.into()))
+        .map(|path| PathBuf::from(path))
+        .unwrap_or_else(|| {
+            eprintln!("Please provide --install-path or set GRIM_DAWN_INSTALL_PATH");
+            std::process::exit(1);
+        });
 
     let mut dbs = open_dbs(install_path.clone(), args.xpac);
 
@@ -77,7 +85,6 @@ fn main() {
             path, difficulty, ..
         } => loot_table(dbs.as_mut_slice(), item_tags, path, difficulty),
         Action::Item { name } => item(dbs.as_mut_slice(), item_tags, name),
-        Action::Ls { path } => ls(dbs.as_mut_slice(), path),
         Action::Show { path } => show(dbs.as_mut_slice(), path),
     }
 }
@@ -89,7 +96,8 @@ fn loot_table<T: BufRead + Seek>(
     difficulty: Difficulty,
 ) {
     let loot_table = get_record(arz, record);
-    let affixes = iter_records(arz, |_, raw| raw.kind == "lootRandomizer");
+    let affixes =
+        iter_records(arz, |_, raw| raw.kind == "LootRandomizer").map(|record| Affix::from(record));
     print!("{loot_table}");
 }
 
@@ -155,8 +163,18 @@ fn get_record<T: BufRead + Seek>(arz: &mut [Database<T>], matches: OsString) -> 
     matches.pop().expect("record.len() > 0")
 }
 
-fn show<T: BufRead + Seek>(arz: &mut [Database<T>], record: OsString) {
-    print!("{}", get_record(arz, record));
+fn show<T: BufRead + Seek>(arz: &mut [Database<T>], record: Option<OsString>) {
+    let record = record.unwrap_or("".into());
+    if PathBuf::from(record.clone())
+        .extension()
+        .map(|ext| ext.to_str())
+        .flatten()
+        == Some("dbr")
+    {
+        print!("{}", get_record(arz, record));
+    } else {
+        ls(arz, Some(record));
+    }
 }
 
 fn ls<T: BufRead + Seek>(arz: &mut [Database<T>], prefix: Option<OsString>) {
@@ -178,13 +196,20 @@ fn ls<T: BufRead + Seek>(arz: &mut [Database<T>], prefix: Option<OsString>) {
             }
         })
         .collect::<HashSet<_>>();
-    let mut sorted = Vec::with_capacity(nexts.len());
-    for path in nexts {
-        sorted.push(path);
-    }
-    sorted.sort();
-    for path in sorted {
-        println!("{path}");
+    if nexts.is_empty() {
+        eprintln!(
+            "No database records match prefix {}",
+            PathBuf::from(prefix.unwrap_or("/".into())).display()
+        );
+    } else {
+        let mut sorted = Vec::with_capacity(nexts.len());
+        for path in nexts {
+            sorted.push(path);
+        }
+        sorted.sort();
+        for path in sorted {
+            println!("{path}");
+        }
     }
 }
 

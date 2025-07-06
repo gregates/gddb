@@ -130,7 +130,6 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 [[package]]
 name = "lib_gddb"
 version = "0.1.0"
-source = "git+https://github.com/gregates/lib-gddb.git?branch=mainline#de58b8da5f45e9f77b9cfb8f24bfdbd815b30745"
 dependencies = [
  "lz4",
 ]
