@@ -85,7 +85,7 @@ enum Action {
     /// Look up an item by name and list the records it appears in.
     Item { name: OsString },
     /// Show a fully resolved loot table
-    LootTable {
+    Loot {
         #[arg(short, long, default_value_t, value_enum)]
         difficulty: Difficulty,
         #[arg(short, long, default_value_t, value_enum)]
@@ -95,7 +95,7 @@ enum Action {
         /// layer.
         vendor: bool,
         #[arg(short, long, default_value_t)]
-        /// Only show possible prefixes; supercedes suffix.
+        /// Only show possible prefixes; supercedes suffix if both are present.
         prefix: bool,
         #[arg(short, long, default_value_t)]
         /// Only show possible suffixes.
@@ -123,7 +123,7 @@ fn main() {
     let item_tags = read_item_tags(install_path.clone());
 
     match args.cmd {
-        Action::LootTable {
+        Action::Loot {
             path, difficulty, dropper, prefix, suffix, vendor, ..
         } => loot_table(dbs.as_mut_slice(), item_tags, path, difficulty, dropper, prefix, suffix, vendor),
         Action::Item { name } => item(dbs.as_mut_slice(), item_tags, name),
