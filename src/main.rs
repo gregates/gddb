@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use lib_gddb::affix::Affix;
-use lib_gddb::affix_combo_weights::AffixComboWeights;
+use lib_gddb::affix_combo_weights::{AffixComboModifiers, AffixComboWeights};
 use lib_gddb::affix_table::AffixTable;
 use lib_gddb::arc::Archive;
 use lib_gddb::arz::{Database, DatabaseValue, RawRecord, Record};
@@ -24,6 +24,8 @@ const TAGS_GD: &str = "resources/Text_EN.arc";
 const TAGS_AOM: &str = "gdx1/resources/Text_EN.arc";
 const TAGS_FG: &str = "gdx2/resources/Text_EN.arc";
 const TAGS_FOA: &str = "gdx3/resources/Text_EN.arc";
+
+const GAME_RANDOMIZER_WEIGHTS: &str = "records/game/gamerandomizerweights.dbr";
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, arg_required_else_help = true)]
@@ -48,6 +50,36 @@ enum Difficulty {
     Ultimate,
 }
 
+impl From<Difficulty> for lib_gddb::Difficulty {
+    fn from(difficulty: Difficulty) -> Self {
+        match difficulty {
+            Difficulty::Normal => Self::Normal,
+            Difficulty::Elite => Self::Elite,
+            Difficulty::Ultimate => Self::Ultimate,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy, ValueEnum)]
+enum MobClass {
+    Common,
+    Champion,
+    Hero,
+    #[default]
+    Boss,
+}
+
+impl From<MobClass> for lib_gddb::MobClass {
+    fn from(mob: MobClass) -> Self {
+        match mob {
+            MobClass::Champion => lib_gddb::MobClass::Champion,
+            MobClass::Hero => lib_gddb::MobClass::Hero,
+            MobClass::Common => lib_gddb::MobClass::Common,
+            MobClass::Boss => lib_gddb::MobClass::Boss,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 enum Action {
     /// Look up an item by name and list the records it appears in.
@@ -56,10 +88,18 @@ enum Action {
     LootTable {
         #[arg(short, long, default_value_t, value_enum)]
         difficulty: Difficulty,
+        #[arg(short, long, default_value_t, value_enum)]
+        dropper: MobClass,
         #[arg(short, long, default_value_t)]
         /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge
         /// layer.
         vendor: bool,
+        #[arg(short, long, default_value_t)]
+        /// Only show possible prefixes; supercedes suffix.
+        prefix: bool,
+        #[arg(short, long, default_value_t)]
+        /// Only show possible suffixes.
+        suffix: bool,
         path: OsString,
     },
     /// Print the specified database record, or list the file tree at the path specified.
@@ -84,8 +124,8 @@ fn main() {
 
     match args.cmd {
         Action::LootTable {
-            path, difficulty, ..
-        } => loot_table(dbs.as_mut_slice(), item_tags, path, difficulty),
+            path, difficulty, dropper, prefix, suffix, vendor, ..
+        } => loot_table(dbs.as_mut_slice(), item_tags, path, difficulty, dropper, prefix, suffix, vendor),
         Action::Item { name } => item(dbs.as_mut_slice(), item_tags, name),
         Action::Show { path } => show(dbs.as_mut_slice(), path),
     }
@@ -96,6 +136,10 @@ fn loot_table<T: BufRead + Seek>(
     tags: HashMap<String, String>,
     record: OsString,
     difficulty: Difficulty,
+    dropper: MobClass,
+    prefix: bool,
+    suffix: bool,
+    vendor: bool,
 ) {
     let loot_table = get_record(arz, record);
     let loot_table = LootTable::from(&loot_table);
@@ -107,23 +151,47 @@ fn loot_table<T: BufRead + Seek>(
         .map(|record| AffixTable::from(&record))
         .collect::<Vec<_>>();
     let affix_table_lookup = affix_tables.into_iter().map(|table| (table.id.clone(), table)).collect::<HashMap<_, _>>();
-    let modifiers = AffixComboWeights::default();
+    let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
+    let modifiers = if vendor {
+        AffixComboWeights::default()
+    } else {
+        modifiers.get(difficulty.into(), dropper.into(), false)
+    };
+
+    if prefix {
+        let mut resolved = loot_table.resolve_prefix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+        resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
+        for (prefix, chance) in resolved {
+            print!("{:0.08}%\t", chance * 100f64);
+            let prefix = prefix.map(|p| p.localize(&tags)).unwrap_or_default();
+            println!("{prefix}");
+        }
+        return;
+    }
+
+    if suffix {
+        let mut resolved = loot_table.resolve_suffix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+        resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
+        for (suffix, chance) in resolved {
+            print!("{:0.08}%\t", chance * 100f64);
+            let suffix = suffix.map(|s| s.localize(&tags)).unwrap_or_default();
+            println!("{suffix}");
+        }
+        return;
+    }
+
     let mut resolved = loot_table.resolve(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
     resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
     for (prefix, suffix, chance) in resolved {
-        print!("{:0.08}%\t", chance * 100f32);
-        if let Some(prefix) = prefix {
-            let prefix = prefix.localize(&tags);
-            print!("{}\t", prefix);
-            let tabs = 2 - prefix.len() / 8;
-            for _ in 0..tabs {
-                print!("\t");
-            }
+        print!("{:0.08}%\t", chance * 100f64);
+        let prefix = prefix.map(|p| p.localize(&tags)).unwrap_or_default();
+        print!("{prefix}\t");
+        let tabs = 2 - prefix.len() / 8;
+        for _ in 0..tabs {
+            print!("\t");
         }
-        if let Some(suffix) = suffix {
-            print!("{}", suffix.localize(&tags));
-        }
-        print!("\n");
+        let suffix = suffix.map(|s| s.localize(&tags)).unwrap_or_default();
+        println!("{suffix}");
     }
 }
 
