@@ -8,9 +8,11 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use lib_gddb::affix::Affix;
+use lib_gddb::affix_combo_weights::AffixComboWeights;
 use lib_gddb::affix_table::AffixTable;
 use lib_gddb::arc::Archive;
 use lib_gddb::arz::{Database, DatabaseValue, RawRecord, Record};
+use lib_gddb::loot_table::LootTable;
 use lib_gddb::tags;
 
 const DB_GD: &str = "database/database.arz";
@@ -96,9 +98,33 @@ fn loot_table<T: BufRead + Seek>(
     difficulty: Difficulty,
 ) {
     let loot_table = get_record(arz, record);
-    let affixes =
-        iter_records(arz, |_, raw| raw.kind == "LootRandomizer").map(|record| Affix::from(record));
-    print!("{loot_table}");
+    let loot_table = LootTable::from(&loot_table);
+    let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
+        .map(|record| Affix::from(record))
+        .collect::<Vec<_>>();
+    let affix_lookup = affixes.iter().map(|affix| (affix.id.clone(), affix)).collect::<HashMap<_, _>>();
+    let affix_tables = iter_records(arz, |_, raw| raw.kind == "LootRandomizerTable")
+        .map(|record| AffixTable::from(&record))
+        .collect::<Vec<_>>();
+    let affix_table_lookup = affix_tables.into_iter().map(|table| (table.id.clone(), table)).collect::<HashMap<_, _>>();
+    let modifiers = AffixComboWeights::default();
+    let mut resolved = loot_table.resolve(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+    resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
+    for (prefix, suffix, chance) in resolved {
+        print!("{:0.08}%\t", chance * 100f32);
+        if let Some(prefix) = prefix {
+            let prefix = prefix.localize(&tags);
+            print!("{}\t", prefix);
+            let tabs = 2 - prefix.len() / 8;
+            for _ in 0..tabs {
+                print!("\t");
+            }
+        }
+        if let Some(suffix) = suffix {
+            print!("{}", suffix.localize(&tags));
+        }
+        print!("\n");
+    }
 }
 
 fn item<T: BufRead + Seek>(arz: &mut [Database<T>], tags: HashMap<String, String>, item: OsString) {
