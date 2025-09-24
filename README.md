@@ -88,10 +88,12 @@ Moosilauke's Shoulderguards is referenced in the following database records:
 
 ### Loot
 Resolve the loot table for an item. Accepts either a full path to a loot table file, or a (partial)
-item name. If given the latter, will use the highest level version of the item.
+item name. If given the latter, will use the highest level version of the item. Can specify
+parameters that modify the affix chances, like difficulty (default: Ultimate) and enemy class
+(default: Boss).
 
 ```
-$ gddb loot "Wendigo Gaze" | head -n 20
+$ gddb loot "Wendigo Gaze" | head -n 9
 3.16164605%     Wraithbound             of Mending
 1.31735252%     Wraithbound             of Attack
 1.31735252%     Wraithbound             of Protection
@@ -101,18 +103,19 @@ $ gddb loot "Wendigo Gaze" | head -n 20
 1.23802816%     Stalwart                of the Wild
 1.23802816%     Stalwart                of the Untamed
 1.23802816%     Stalwart                of Caged Souls
-1.23802816%     Shrewd                  of the Wild
-1.23802816%     Shrewd                  of the Untamed
-1.23802816%     Shrewd                  of Caged Souls
-1.23802816%     Mighty                  of the Wild
-1.23802816%     Mighty                  of the Untamed
-1.23802816%     Mighty                  of Caged Souls
-1.23802816%     Mystic                  of the Wild
-1.23802816%     Mystic                  of the Untamed
-1.23802816%     Mystic                  of Caged Souls
-1.23802816%     Vigorous                of the Wild
-1.23802816%     Vigorous                of the Untamed
+
+$ gddb loot --difficulty normal --class champion "Wendigo Gaze" | head -n 9
+1.71753967%     Aggressive              of Mending
+1.71753967%     Stalwart                of Mending
+1.71753967%     Shrewd                  of Mending
+1.71753967%     Mighty                  of Mending
+1.71753967%     Mystic                  of Mending
+1.71753967%     Vigorous                of Mending
+1.41697022%     Prismatic               of Mending
+1.41697022%     Impervious              of Mending
+0.71564153%     Aggressive              of Attack
 ```
+
 
 ### CSV
 Outputs a csv file containing the fully resolved loot table for **every** MI in the game. Useful
