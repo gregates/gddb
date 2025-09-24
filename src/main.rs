@@ -142,7 +142,7 @@ enum Action {
         #[arg(short, long, default_value_t, value_enum)]
         difficulty: Difficulty,
         #[arg(short, long, default_value_t, value_enum)]
-        dropper: MobClass,
+        class: MobClass,
         #[arg(short, long, default_value_t)]
         /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge
         /// layer.
@@ -153,7 +153,7 @@ enum Action {
         #[arg(short, long, default_value_t)]
         /// Only show possible suffixes.
         suffix: bool,
-        path: OsString,
+        path_or_item_name: OsString,
     },
     /// Print the specified database record, or list the file tree at the path specified.
     Show { path: Option<OsString> },
@@ -185,18 +185,18 @@ fn main() {
     match args.cmd {
         Action::Csv => csv(dbs.as_mut_slice()),
         Action::Loot {
-            path,
+            path_or_item_name,
             difficulty,
-            dropper,
+            class,
             prefix,
             suffix,
             vendor,
             ..
         } => loot_table(
             dbs.as_mut_slice(),
-            path,
+            path_or_item_name,
             difficulty,
-            dropper,
+            class,
             prefix,
             suffix,
             vendor,
@@ -332,17 +332,47 @@ fn lookup_tag(tag: impl AsRef<str> + std::fmt::Display) {
     }
 }
 
+fn is_path(maybe_path: &OsString) -> bool {
+    maybe_path.to_string_lossy().ends_with(".dbr")
+}
+
+fn resolve_loot_table<T: BufRead + Seek>(arz: &mut [Database<T>], tags: &HashMap<String, String>, record: OsString) -> Record {
+    if is_path(&record) {
+        get_record(arz, record)
+    } else {
+        let (name, records) = lookup_items(arz, &tags, record);
+        let Some((item_id, _item)) = records.into_iter().max_by_key(|(_id, record)| record.data["itemLevel"].as_int().unwrap_or(0)) else {
+            eprintln!("No matching items found");
+            std::process::exit(0);
+        };
+        let mut loot_tables = iter_records(arz, |_, raw| raw.kind == "LootItemTable_DynWeight")
+            .filter(|record| record.data.iter().any(|(_, val)| val.as_string().as_ref() == Some(&item_id)))
+            .collect::<Vec<_>>();
+        if loot_tables.len() > 1 {
+            eprintln!("WARNING: Found multiple loot tables for {name}; using last table in this list:");
+            for table in loot_tables.iter() {
+                eprintln!("  {}", table.id);
+            }
+        }
+        let Some(table) = loot_tables.pop() else {
+            eprintln!("No loot table found for {name}");
+            std::process::exit(0);
+        };
+        table
+    }
+}
+
 fn loot_table<T: BufRead + Seek>(
     arz: &mut [Database<T>],
     record: OsString,
     difficulty: Difficulty,
-    dropper: MobClass,
+    class: MobClass,
     prefix: bool,
     suffix: bool,
     vendor: bool,
 ) {
     let tags = read_item_tags();
-    let loot_table = get_record(arz, record);
+    let loot_table = resolve_loot_table(arz, &tags, record);
     let loot_table = LootTable::from(&loot_table);
     let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
         .map(|record| Affix::from(record))
@@ -362,7 +392,7 @@ fn loot_table<T: BufRead + Seek>(
     let modifiers = if vendor {
         AffixComboWeights::default()
     } else {
-        modifiers.get(difficulty.into(), dropper.into(), false)
+        modifiers.get(difficulty.into(), class.into(), false)
     };
 
     if prefix {
@@ -406,22 +436,26 @@ fn loot_table<T: BufRead + Seek>(
 
 fn item<T: BufRead + Seek>(arz: &mut [Database<T>], item: OsString) {
     let tags = read_item_tags();
-    let (name, ids) = lookup_item_ids(arz, &tags, item);
+    let (name, records) = lookup_items(arz, &tags, item);
     println!("{name} is referenced in the following database records:");
-    for record in ids {
-        println!("  {record}");
+    for (id, _record) in records {
+        println!("  {id}");
     }
 }
 
-fn lookup_item_ids<T: BufRead + Seek>(
+fn lookup_items<T: BufRead + Seek>(
     arz: &mut [Database<T>],
     tags: &HashMap<String, String>,
     item: OsString,
-) -> (String, HashSet<String>) {
+) -> (String, HashMap<String, Record>) {
     let item = item.to_string_lossy();
     let item_parts = item.split_ascii_whitespace().collect::<Vec<_>>();
     let mut possible_tags = vec![];
     for (tag, value) in tags.iter() {
+        if value.starts_with('"') {
+            // Quoted text is never an item name
+            continue;
+        }
         if item_parts.iter().all(|part| value.contains(part)) {
             possible_tags.push((tag, value));
         }
@@ -434,7 +468,7 @@ fn lookup_item_ids<T: BufRead + Seek>(
             possible_tags = vec![*exact_match];
         } else {
             possible_tags.sort_by_key(|(_, v)| *v);
-            println!("Multiple item tags found, please disambiguate:");
+            println!("Multiple tags found, please disambiguate:");
             for (_, value) in possible_tags.iter() {
                 println!("  {value}");
             }
@@ -443,12 +477,12 @@ fn lookup_item_ids<T: BufRead + Seek>(
     }
     let (tag, name) = possible_tags.pop().expect("possible_tags.len() == 1");
     let tag = DatabaseValue::String(tag.to_string());
-    let ids = iter_records(arz, |id, _raw| id.starts_with("records/items"))
+    let records = iter_records(arz, |id, _raw| id.starts_with("records/items"))
         .filter(|record| record.data.get("itemNameTag") == Some(&tag))
-        .map(|record| record.id)
-        .collect::<HashSet<_>>();
+        .map(|record| (record.id.clone(), record))
+        .collect::<HashMap<_, _>>();
 
-    (name.to_string(), ids)
+    (name.to_string(), records)
 }
 
 fn get_record<T: BufRead + Seek>(arz: &mut [Database<T>], matches: OsString) -> Record {
