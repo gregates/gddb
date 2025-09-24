@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -20,12 +21,13 @@ const DB_AOM: &str = "gdx1/database/GDX1.arz";
 const DB_FG: &str = "gdx2/database/GDX2.arz";
 const DB_FOA: &str = "gdx3/database/GDX3.arz";
 
-const TAGS_GD: &str = "resources/Text_EN.arc";
-const TAGS_AOM: &str = "gdx1/resources/Text_EN.arc";
-const TAGS_FG: &str = "gdx2/resources/Text_EN.arc";
-const TAGS_FOA: &str = "gdx3/resources/Text_EN.arc";
+const TAG_FILE: &str = "resources/Text_";
+const TAG_EXT: &str = ".arc";
 
 const GAME_RANDOMIZER_WEIGHTS: &str = "records/game/gamerandomizerweights.dbr";
+
+static INSTALL_PATH: OnceLock<PathBuf> = OnceLock::new();
+static LANGUAGE: OnceLock<Language> = OnceLock::new();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, arg_required_else_help = true)]
@@ -33,6 +35,9 @@ struct Args {
     #[arg(short, long)]
     /// Path to Grim Dawn installation
     install_path: Option<OsString>,
+
+    #[arg(short, long, default_value_t, ignore_case = true)]
+    language: Language,
 
     #[arg(short, long)]
     /// Restrict lookup to database for nth expansion (0 = base game)
@@ -80,6 +85,50 @@ impl From<MobClass> for lib_gddb::MobClass {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, ValueEnum)]
+enum Language {
+    Cs,
+    De,
+    #[default]
+    En,
+    Es,
+    Fr,
+    It,
+    Ja,
+    Ko,
+    Pl,
+    Pt,
+    Ru,
+    Vi,
+    Zh,
+}
+
+impl Language {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Cs => "CS",
+            Self::De => "DE",
+            Self::En => "EN",
+            Self::Es => "ES",
+            Self::Fr => "FR",
+            Self::It => "IT",
+            Self::Ja => "JA",
+            Self::Ko => "KO",
+            Self::Pl => "PL",
+            Self::Pt => "PT",
+            Self::Ru => "RU",
+            Self::Vi => "VI",
+            Self::Zh => "ZH",
+        }
+    }
+}
+
+impl std::fmt::Display for Language {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 #[derive(Subcommand, Debug)]
 enum Action {
     /// Look up an item by name and list the records it appears in.
@@ -104,23 +153,28 @@ enum Action {
     },
     /// Print the specified database record, or list the file tree at the path specified.
     Show { path: Option<OsString> },
+    /// Resolve a tag to the given locale.
+    Tag { tag: OsString },
 }
 
 fn main() {
     let args = Args::parse();
 
-    let install_path = args
+    INSTALL_PATH.set(args
         .install_path
         .or(env::var("GRIM_DAWN_INSTALL_PATH").ok().map(|s| s.into()))
         .map(|path| PathBuf::from(path))
         .unwrap_or_else(|| {
             eprintln!("Please provide --install-path or set GRIM_DAWN_INSTALL_PATH");
             std::process::exit(1);
-        });
+        })
+    ).expect("INSTALL PATH initialized twice");
 
-    let mut dbs = open_dbs(install_path.clone(), args.xpac);
+    LANGUAGE.set(args.language).expect("LANGUAGE initialized twice");
 
-    let item_tags = read_item_tags(install_path.clone());
+    let mut dbs = open_dbs(args.xpac);
+
+    let item_tags = read_item_tags();
 
     match args.cmd {
         Action::Loot {
@@ -128,6 +182,38 @@ fn main() {
         } => loot_table(dbs.as_mut_slice(), item_tags, path, difficulty, dropper, prefix, suffix, vendor),
         Action::Item { name } => item(dbs.as_mut_slice(), item_tags, name),
         Action::Show { path } => show(dbs.as_mut_slice(), path),
+        Action::Tag { tag } => lookup_tag(tag.to_string_lossy()),
+    }
+}
+
+fn lookup_tag(tag: impl AsRef<str> + std::fmt::Display) {
+    let mut values = vec![];
+    for (xpac, mut arc) in (0..=3)
+        .into_iter()
+        .map(|xpac| (xpac, path_to(text_resource(xpac))))
+        .filter_map(|(xpac, path)| Archive::open(&path).ok().map(|arc| (xpac, arc)))
+        {
+            for record in arc.iter_records().unwrap().filter(|record| record.as_ref().ok().filter(|record| record.id.contains("tag")).is_some()) {
+                let record = record.unwrap();
+                let tags = tags::parse(&record.data);
+                match tags {
+                    Ok(tags) => if let Some(text) = tags.get(tag.as_ref()).cloned() {
+                        values.push((xpac, record.id, text));
+                    },
+                    Err(_e) => {}, // eprintln!("failed to parse tags for {}: {:#?}", record.id, _e),
+                }
+            }
+        }
+    values.dedup_by(|(_, _, a), (_, _, b)| a == b);
+    if values.len() == 1 {
+        println!("{}", values[0].2);
+    } else if values.len() > 1 {
+        println!("Multiple tag values found:");
+        for (xpac, id, text) in values {
+            println!("{}/{} maps {} to {}", text_resource(xpac), id, tag, text);
+        }
+    } else {
+        eprintln!("Tag not found");
     }
 }
 
@@ -378,7 +464,7 @@ fn records_by_xpac<T: BufRead + Seek>(
     }
 }
 
-fn open_dbs(install_path: PathBuf, xpac: Option<usize>) -> Vec<Database<BufReader<File>>> {
+fn open_dbs(xpac: Option<usize>) -> Vec<Database<BufReader<File>>> {
     let dbs = match xpac {
         Some(0) => vec![DB_GD],
         Some(1) => vec![DB_AOM],
@@ -391,14 +477,13 @@ fn open_dbs(install_path: PathBuf, xpac: Option<usize>) -> Vec<Database<BufReade
         }
     }
     .iter()
-    .map(|path| install_path.join(path))
-    .filter_map(|path| Database::open(&path).ok())
+    .filter_map(|path| Database::open(&path_to(path)).ok())
     .collect::<Vec<_>>();
 
     if dbs.is_empty() {
         eprintln!(
             "Could not read database files. Please verify install path: {}",
-            install_path.display(),
+            install_path().display(),
         );
         std::process::exit(1);
     }
@@ -406,10 +491,10 @@ fn open_dbs(install_path: PathBuf, xpac: Option<usize>) -> Vec<Database<BufReade
     dbs
 }
 
-fn read_item_tags(install_path: PathBuf) -> HashMap<String, String> {
-    let item_tags = [TAGS_GD, TAGS_AOM, TAGS_FG, TAGS_FOA]
-        .iter()
-        .map(|path| install_path.join(path))
+fn read_item_tags() -> HashMap<String, String> {
+    let item_tags = (0..=3)
+        .into_iter()
+        .map(|xpac| path_to(text_resource(xpac)))
         .enumerate()
         .filter_map(|(i, path)| Archive::open(&path).ok().map(|arc| (i, arc)))
         .map(|(i, mut arc)| {
@@ -429,10 +514,30 @@ fn read_item_tags(install_path: PathBuf) -> HashMap<String, String> {
     let Some(item_tags) = item_tags else {
         eprintln!(
             "Could not read tag files. Please verify install path: {}",
-            install_path.display()
+            install_path().display()
         );
         std::process::exit(1);
     };
 
     item_tags
+}
+
+fn install_path() -> &'static PathBuf {
+    INSTALL_PATH.get().unwrap()
+}
+
+fn path_to(path: impl AsRef<str>) -> PathBuf {
+    INSTALL_PATH.get().unwrap().join(path.as_ref())
+}
+
+fn text_resource(xpac: usize) -> String {
+    if xpac > 0 {
+        format!("gdx{}/{}{}{}", xpac, TAG_FILE, lang(), TAG_EXT)
+    } else {
+        format!("{}{}{}", TAG_FILE, lang(), TAG_EXT)
+    }
+}
+
+fn lang() -> Language {
+    *LANGUAGE.get().unwrap()
 }
