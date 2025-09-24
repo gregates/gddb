@@ -13,7 +13,9 @@ use lib_gddb::affix_combo_weights::{AffixComboModifiers, AffixComboWeights};
 use lib_gddb::affix_table::AffixTable;
 use lib_gddb::arc::Archive;
 use lib_gddb::arz::{Database, DatabaseValue, RawRecord, Record};
+use lib_gddb::item::Item;
 use lib_gddb::loot_table::LootTable;
+use lib_gddb::rarity::Rarity;
 use lib_gddb::tags;
 
 const DB_GD: &str = "database/database.arz";
@@ -131,6 +133,8 @@ impl std::fmt::Display for Language {
 
 #[derive(Subcommand, Debug)]
 enum Action {
+    /// Generate csv for forum rowzero sheet import.
+    Csv,
     /// Look up an item by name and list the records it appears in.
     Item { name: OsString },
     /// Show a fully resolved loot table.
@@ -160,29 +164,132 @@ enum Action {
 fn main() {
     let args = Args::parse();
 
-    INSTALL_PATH.set(args
-        .install_path
-        .or(env::var("GRIM_DAWN_INSTALL_PATH").ok().map(|s| s.into()))
-        .map(|path| PathBuf::from(path))
-        .unwrap_or_else(|| {
-            eprintln!("Please provide --install-path or set GRIM_DAWN_INSTALL_PATH");
-            std::process::exit(1);
-        })
-    ).expect("INSTALL PATH initialized twice");
+    INSTALL_PATH
+        .set(
+            args.install_path
+                .or(env::var("GRIM_DAWN_INSTALL_PATH").ok().map(|s| s.into()))
+                .map(|path| PathBuf::from(path))
+                .unwrap_or_else(|| {
+                    eprintln!("Please provide --install-path or set GRIM_DAWN_INSTALL_PATH");
+                    std::process::exit(1);
+                }),
+        )
+        .expect("INSTALL PATH initialized twice");
 
-    LANGUAGE.set(args.language).expect("LANGUAGE initialized twice");
+    LANGUAGE
+        .set(args.language)
+        .expect("LANGUAGE initialized twice");
 
     let mut dbs = open_dbs(args.xpac);
 
-    let item_tags = read_item_tags();
-
     match args.cmd {
+        Action::Csv => csv(dbs.as_mut_slice()),
         Action::Loot {
-            path, difficulty, dropper, prefix, suffix, vendor, ..
-        } => loot_table(dbs.as_mut_slice(), item_tags, path, difficulty, dropper, prefix, suffix, vendor),
-        Action::Item { name } => item(dbs.as_mut_slice(), item_tags, name),
+            path,
+            difficulty,
+            dropper,
+            prefix,
+            suffix,
+            vendor,
+            ..
+        } => loot_table(
+            dbs.as_mut_slice(),
+            path,
+            difficulty,
+            dropper,
+            prefix,
+            suffix,
+            vendor,
+        ),
+        Action::Item { name } => item(dbs.as_mut_slice(), name),
         Action::Show { path } => show(dbs.as_mut_slice(), path),
         Action::Tag { tag } => lookup_tag(tag.to_string_lossy()),
+    }
+}
+
+fn csv<T: BufRead + Seek>(arz: &mut [Database<T>]) {
+    let tags = read_item_tags();
+    let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
+        .map(|record| Affix::from(record))
+        .collect::<Vec<_>>();
+    let affix_lookup = affixes
+        .iter()
+        .map(|affix| (affix.id.clone(), affix))
+        .collect::<HashMap<_, _>>();
+    let affix_tables = iter_records(arz, |_, raw| raw.kind == "LootRandomizerTable")
+        .map(|record| AffixTable::from(&record))
+        .collect::<Vec<_>>();
+    let affix_table_lookup = affix_tables
+        .into_iter()
+        .map(|table| (table.id.clone(), table))
+        .collect::<HashMap<_, _>>();
+    //let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
+
+    let mut loot_tables: HashMap<String, LootTable> = Default::default();
+
+    for record in iter_records(arz, |id, raw| {
+        id.starts_with("records/items/loottables/") && raw.kind == "LootItemTable_DynWeight"
+    }) {
+        if record.id.contains("nemesis") && !record.id.contains("03") {
+            // Always use the 3rd nemesis table
+            continue;
+        }
+        if record.id.ends_with("tdyn_weaponstandin_a01.dbr") {
+            // References non-existent affix table
+            continue;
+        }
+        if record.id.ends_with("broken.dbr") {
+            // Not sure exactly what these are, but I don't think they're useful.
+            continue;
+        }
+        let loot_table = LootTable::from(&record);
+        loot_tables.insert(record.id.clone(), loot_table);
+    }
+
+    let rare_items = iter_records(arz, |id, _raw| {
+        id.starts_with("records/items/")
+            && !id.starts_with("records/items/lore")
+            && !id.starts_with("records/items/loot")
+            && !id.starts_with("records/items/misc")
+            && !id.starts_with("records/items/crafting")
+            && !id.starts_with("records/items/enemygear")
+        })
+        .map(|record| (record.id.clone(), Item::from(&record)))
+        .filter(|(_, item)| item.rarity == Rarity::Rare && item.level == 94)
+        .collect::<HashMap<_, _>>();
+
+    println!("Loot Table\tPrefix\tItem\tSuffix\tPrefix Tier\tSuffix Tier\tChance");
+    for (id, loot_table) in loot_tables {
+        //let modifiers = modifiers.get(Difficulty::Ultimate.into(), MobClass::Boss.into(), false);
+        let mut resolved = loot_table.resolve(
+            100u32,
+            &AffixComboWeights::default(),
+            &affix_table_lookup,
+            &affix_lookup,
+        );
+        resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
+        for loot in loot_table.loots {
+            let Some(loot) = rare_items.get(&loot.id) else { continue; };
+            let loot_name = tags.get(&loot.tag).unwrap_or_else(|| &loot.tag);
+            for (prefix, suffix, chance) in &resolved {
+                let p = prefix
+                    .map(|affix| affix.localize(&tags))
+                    .unwrap_or_default();
+                let s = suffix
+                    .map(|affix| affix.localize(&tags))
+                    .unwrap_or_default();
+                let pr = prefix
+                    .map(|affix| affix.rarity.to_string())
+                    .unwrap_or("None".to_string());
+                let sr = suffix
+                    .map(|affix| affix.rarity.to_string())
+                    .unwrap_or("None".to_string());
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    id, p, loot_name, s, pr, sr, chance
+                );
+            }
+        }
     }
 }
 
@@ -192,18 +299,26 @@ fn lookup_tag(tag: impl AsRef<str> + std::fmt::Display) {
         .into_iter()
         .map(|xpac| (xpac, path_to(text_resource(xpac))))
         .filter_map(|(xpac, path)| Archive::open(&path).ok().map(|arc| (xpac, arc)))
-        {
-            for record in arc.iter_records().unwrap().filter(|record| record.as_ref().ok().filter(|record| record.id.contains("tag")).is_some()) {
-                let record = record.unwrap();
-                let tags = tags::parse(&record.data);
-                match tags {
-                    Ok(tags) => if let Some(text) = tags.get(tag.as_ref()).cloned() {
+    {
+        for record in arc.iter_records().unwrap().filter(|record| {
+            record
+                .as_ref()
+                .ok()
+                .filter(|record| record.id.contains("tag"))
+                .is_some()
+        }) {
+            let record = record.unwrap();
+            let tags = tags::parse(&record.data);
+            match tags {
+                Ok(tags) => {
+                    if let Some(text) = tags.get(tag.as_ref()).cloned() {
                         values.push((xpac, record.id, text));
-                    },
-                    Err(_e) => {}, // eprintln!("failed to parse tags for {}: {:#?}", record.id, _e),
+                    }
                 }
+                Err(_e) => {} // eprintln!("failed to parse tags for {}: {:#?}", record.id, _e),
             }
         }
+    }
     values.dedup_by(|(_, _, a), (_, _, b)| a == b);
     if values.len() == 1 {
         println!("{}", values[0].2);
@@ -219,7 +334,6 @@ fn lookup_tag(tag: impl AsRef<str> + std::fmt::Display) {
 
 fn loot_table<T: BufRead + Seek>(
     arz: &mut [Database<T>],
-    tags: HashMap<String, String>,
     record: OsString,
     difficulty: Difficulty,
     dropper: MobClass,
@@ -227,16 +341,23 @@ fn loot_table<T: BufRead + Seek>(
     suffix: bool,
     vendor: bool,
 ) {
+    let tags = read_item_tags();
     let loot_table = get_record(arz, record);
     let loot_table = LootTable::from(&loot_table);
     let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
         .map(|record| Affix::from(record))
         .collect::<Vec<_>>();
-    let affix_lookup = affixes.iter().map(|affix| (affix.id.clone(), affix)).collect::<HashMap<_, _>>();
+    let affix_lookup = affixes
+        .iter()
+        .map(|affix| (affix.id.clone(), affix))
+        .collect::<HashMap<_, _>>();
     let affix_tables = iter_records(arz, |_, raw| raw.kind == "LootRandomizerTable")
         .map(|record| AffixTable::from(&record))
         .collect::<Vec<_>>();
-    let affix_table_lookup = affix_tables.into_iter().map(|table| (table.id.clone(), table)).collect::<HashMap<_, _>>();
+    let affix_table_lookup = affix_tables
+        .into_iter()
+        .map(|table| (table.id.clone(), table))
+        .collect::<HashMap<_, _>>();
     let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
     let modifiers = if vendor {
         AffixComboWeights::default()
@@ -245,7 +366,8 @@ fn loot_table<T: BufRead + Seek>(
     };
 
     if prefix {
-        let mut resolved = loot_table.resolve_prefix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+        let mut resolved =
+            loot_table.resolve_prefix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
         resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
         for (prefix, chance) in resolved {
             print!("{:0.08}%\t", chance * 100f64);
@@ -256,7 +378,8 @@ fn loot_table<T: BufRead + Seek>(
     }
 
     if suffix {
-        let mut resolved = loot_table.resolve_suffix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+        let mut resolved =
+            loot_table.resolve_suffix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
         resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
         for (suffix, chance) in resolved {
             print!("{:0.08}%\t", chance * 100f64);
@@ -281,7 +404,8 @@ fn loot_table<T: BufRead + Seek>(
     }
 }
 
-fn item<T: BufRead + Seek>(arz: &mut [Database<T>], tags: HashMap<String, String>, item: OsString) {
+fn item<T: BufRead + Seek>(arz: &mut [Database<T>], item: OsString) {
+    let tags = read_item_tags();
     let (name, ids) = lookup_item_ids(arz, &tags, item);
     println!("{name} is referenced in the following database records:");
     for record in ids {
