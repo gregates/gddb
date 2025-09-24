@@ -114,6 +114,11 @@ $ gddb loot "Wendigo Gaze" | head -n 20
 1.23802816%     Vigorous                of the Untamed
 ```
 
+### CSV
+Outputs a csv file containing the fully resolved loot table for **every** MI in the game. Useful
+for exploring these loot tables in a sufficiently powerful spreadsheet program, such as [Row
+Zero](https://rowzero.io/home).
+
 ## FAQ
 
 ### Why not just use ArchiveTool.exe and the modding tools that come with the game?
