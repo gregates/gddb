@@ -223,7 +223,7 @@ fn csv<T: BufRead + Seek>(arz: &mut [Database<T>]) {
         .into_iter()
         .map(|table| (table.id.clone(), table))
         .collect::<HashMap<_, _>>();
-    //let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
+    let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
 
     let mut loot_tables: HashMap<String, LootTable> = Default::default();
 
@@ -260,10 +260,10 @@ fn csv<T: BufRead + Seek>(arz: &mut [Database<T>]) {
 
     println!("Loot Table\tPrefix\tItem\tSuffix\tPrefix Tier\tSuffix Tier\tChance");
     for (id, loot_table) in loot_tables {
-        //let modifiers = modifiers.get(Difficulty::Ultimate.into(), MobClass::Boss.into(), false);
+        let modifiers = modifiers.get(Difficulty::Ultimate.into(), MobClass::Boss.into(), false);
         let mut resolved = loot_table.resolve(
             100u32,
-            &AffixComboWeights::default(),
+            &modifiers,
             &affix_table_lookup,
             &affix_lookup,
         );
