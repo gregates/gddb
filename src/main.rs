@@ -133,7 +133,7 @@ impl std::fmt::Display for Language {
 enum Action {
     /// Look up an item by name and list the records it appears in.
     Item { name: OsString },
-    /// Show a fully resolved loot table
+    /// Show a fully resolved loot table.
     Loot {
         #[arg(short, long, default_value_t, value_enum)]
         difficulty: Difficulty,
@@ -153,7 +153,7 @@ enum Action {
     },
     /// Print the specified database record, or list the file tree at the path specified.
     Show { path: Option<OsString> },
-    /// Resolve a tag to the given locale.
+    /// Resolve a tag to localized text.
     Tag { tag: OsString },
 }
 
