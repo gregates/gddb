@@ -180,11 +180,15 @@ enum Action {
     /// Show a fully resolved loot table.
     Loot {
         #[arg(short, long, default_value_t, value_enum)]
+        challenge: ChallengeLayer,
+        #[arg(short, long, default_value_t, value_enum)]
         difficulty: Difficulty,
         #[arg(short, long, default_value_t, value_enum)]
         enemy: MobClass,
-        #[arg(short, long, default_value_t, value_enum)]
-        challenge: ChallengeLayer,
+        #[arg(short = 'b', long, default_value_t)]
+        /// Use chest modifiers, e.g., BossChest for enemy=Boss.
+        /// Always true in crucible or sr.
+        chest: bool,
         #[arg(short, long, default_value_t)]
         /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge.
         vendor: bool,
@@ -230,6 +234,7 @@ fn main() {
             difficulty,
             enemy,
             challenge,
+            chest,
             prefix,
             suffix,
             vendor,
@@ -240,6 +245,7 @@ fn main() {
             difficulty,
             enemy,
             challenge,
+            chest,
             prefix,
             suffix,
             vendor,
@@ -411,6 +417,7 @@ fn loot_table<T: BufRead + Seek>(
     difficulty: Difficulty,
     class: MobClass,
     challenge: ChallengeLayer,
+    is_chest: bool,
     prefix: bool,
     suffix: bool,
     vendor: bool,
@@ -443,7 +450,11 @@ fn loot_table<T: BufRead + Seek>(
     let modifiers = if vendor {
         AffixComboWeights::default()
     } else {
-        modifiers.get(difficulty.into(), class.into(), false)
+        let is_chest = is_chest || match challenge {
+            ChallengeLayer::Crucible | ChallengeLayer::ShatteredRealm => true,
+            _ => false,
+        };
+        modifiers.get(difficulty.into(), class.into(), is_chest)
     };
 
     if prefix {

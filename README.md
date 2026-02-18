@@ -116,29 +116,6 @@ $ gddb loot --difficulty normal --enemy champion "Wendigo Gaze" | head -n 9
 0.71564153%     Aggressive              of Attack
 ```
 
-### Help
-Get help for a specific command.
-
-```
-$ gddb help loot
-Show a fully resolved loot table
-
-Usage: gddb loot [OPTIONS] <PATH_OR_ITEM_NAME>
-
-Arguments:
-  <PATH_OR_ITEM_NAME>
-
-Options:
-  -d, --difficulty <DIFFICULTY>  [default: ultimate] [possible values: normal, elite, ultimate]
-  -e, --enemy <ENEMY>            [default: boss] [possible values: common, champion, hero, boss]
-  -c, --challenge <CHALLENGE>    [default: none] [possible values: none, dangerous, treacherous, forbidden, crucible, sr]
-  -v, --vendor                   Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge
-  -p, --prefix                   Only show possible prefixes; supercedes suffix if both are present
-  -s, --suffix                   Only show possible suffixes
-  -h, --help                     Print help
-
-```
-
 ### CSV
 Outputs a csv file containing the fully resolved loot table for **every** MI in the game. Useful
 for exploring these loot tables in a sufficiently powerful spreadsheet program, such as [Row
