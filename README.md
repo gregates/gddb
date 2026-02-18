@@ -89,8 +89,8 @@ Moosilauke's Shoulderguards is referenced in the following database records:
 ### Loot
 Resolve the loot table for an item. Accepts either a full path to a loot table file, or a (partial)
 item name. If given the latter, will use the highest level version of the item. Can specify
-parameters that modify the affix chances, like difficulty (default: Ultimate) and enemy class
-(default: Boss).
+parameters that modify the affix chances, like difficulty (default: Ultimate), enemy class
+(default: Boss), and challenge layer (default: none).
 
 ```
 $ gddb loot "Wendigo Gaze" | head -n 9
@@ -104,7 +104,7 @@ $ gddb loot "Wendigo Gaze" | head -n 9
 1.23802816%     Stalwart                of the Untamed
 1.23802816%     Stalwart                of Caged Souls
 
-$ gddb loot --difficulty normal --class champion "Wendigo Gaze" | head -n 9
+$ gddb loot --difficulty normal --enemy champion "Wendigo Gaze" | head -n 9
 1.71753967%     Aggressive              of Mending
 1.71753967%     Stalwart                of Mending
 1.71753967%     Shrewd                  of Mending
@@ -116,6 +116,28 @@ $ gddb loot --difficulty normal --class champion "Wendigo Gaze" | head -n 9
 0.71564153%     Aggressive              of Attack
 ```
 
+### Help
+Get help for a specific command.
+
+```
+$ gddb help loot
+Show a fully resolved loot table
+
+Usage: gddb loot [OPTIONS] <PATH_OR_ITEM_NAME>
+
+Arguments:
+  <PATH_OR_ITEM_NAME>
+
+Options:
+  -d, --difficulty <DIFFICULTY>  [default: ultimate] [possible values: normal, elite, ultimate]
+  -e, --enemy <ENEMY>            [default: boss] [possible values: common, champion, hero, boss]
+  -c, --challenge <CHALLENGE>    [default: none] [possible values: none, dangerous, treacherous, forbidden, crucible, sr]
+  -v, --vendor                   Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge
+  -p, --prefix                   Only show possible prefixes; supercedes suffix if both are present
+  -s, --suffix                   Only show possible suffixes
+  -h, --help                     Print help
+
+```
 
 ### CSV
 Outputs a csv file containing the fully resolved loot table for **every** MI in the game. Useful

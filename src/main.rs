@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap::builder::PossibleValue;
 
 use lib_gddb::affix::Affix;
 use lib_gddb::affix_combo_weights::{AffixComboModifiers, AffixComboWeights};
@@ -27,6 +28,10 @@ const TAG_FILE: &str = "resources/Text_";
 const TAG_EXT: &str = ".arc";
 
 const GAME_RANDOMIZER_WEIGHTS: &str = "records/game/gamerandomizerweights.dbr";
+const CHALLENGE_LAYER_EASY: &str = "records/game/challengeareas/challengelayer_easy.dbr";
+const CHALLENGE_LAYER_HARD: &str = "records/game/challengeareas/challengelayer_hard.dbr";
+const CHALLENGE_LAYER_ROGUELIKE: &str = "records/game/challengeareas/challengelayer_hard.dbr";
+const CHALLENGE_LAYER_ENDLESS: &str = "records/game/challengeareas/challengelayer_endlessdungeontreasureroom.dbr";
 
 static INSTALL_PATH: OnceLock<PathBuf> = OnceLock::new();
 static LANGUAGE: OnceLock<Language> = OnceLock::new();
@@ -87,6 +92,41 @@ impl From<MobClass> for lib_gddb::MobClass {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy)]
+enum ChallengeLayer {
+    #[default]
+    None,
+    Dangerous,
+    Treacherous,
+    Roguelike,
+    ShatteredRealm,
+    Crucible,
+}
+
+impl ValueEnum for ChallengeLayer {
+    fn value_variants<'a>() -> &'a[Self] {
+        &[
+            Self::None,
+            Self::Dangerous,
+            Self::Treacherous,
+            Self::Roguelike,
+            Self::Crucible,
+            Self::ShatteredRealm,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match self {
+            Self::None => PossibleValue::new("none").alias("null").alias("0"),
+            Self::Dangerous => PossibleValue::new("dangerous").alias("easy").alias("1"),
+            Self::Treacherous => PossibleValue::new("treacherous").alias("hard").alias("2"),
+            Self::Roguelike => PossibleValue::new("forbidden").alias("roguelike").alias("rogue-like").alias("dungeon").alias("skeleton-key").alias("skeleton-key-dungeon").alias("roguelike-dungeon").alias("3"),
+            Self::Crucible => PossibleValue::new("crucible").alias("cruci").alias("4").alias("4+"),
+            Self::ShatteredRealm => PossibleValue::new("sr").alias("shatteredrealm").alias("shattered-realm").alias("endless").alias("endlessdungeon").alias("endlessdungeontreasureroom"),
+        })
+    }
+}
+
 #[derive(Default, Debug, Clone, Copy, ValueEnum)]
 enum Language {
     Cs,
@@ -142,10 +182,11 @@ enum Action {
         #[arg(short, long, default_value_t, value_enum)]
         difficulty: Difficulty,
         #[arg(short, long, default_value_t, value_enum)]
-        class: MobClass,
+        enemy: MobClass,
+        #[arg(short, long, default_value_t, value_enum)]
+        challenge: ChallengeLayer,
         #[arg(short, long, default_value_t)]
-        /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge
-        /// layer.
+        /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge.
         vendor: bool,
         #[arg(short, long, default_value_t)]
         /// Only show possible prefixes; supercedes suffix if both are present.
@@ -187,7 +228,8 @@ fn main() {
         Action::Loot {
             path_or_item_name,
             difficulty,
-            class,
+            enemy,
+            challenge,
             prefix,
             suffix,
             vendor,
@@ -196,7 +238,8 @@ fn main() {
             dbs.as_mut_slice(),
             path_or_item_name,
             difficulty,
-            class,
+            enemy,
+            challenge,
             prefix,
             suffix,
             vendor,
@@ -367,6 +410,7 @@ fn loot_table<T: BufRead + Seek>(
     record: OsString,
     difficulty: Difficulty,
     class: MobClass,
+    challenge: ChallengeLayer,
     prefix: bool,
     suffix: bool,
     vendor: bool,
@@ -388,7 +432,14 @@ fn loot_table<T: BufRead + Seek>(
         .into_iter()
         .map(|table| (table.id.clone(), table))
         .collect::<HashMap<_, _>>();
-    let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
+    let modifier_record = match challenge {
+        ChallengeLayer::None => GAME_RANDOMIZER_WEIGHTS,
+        ChallengeLayer::Dangerous => CHALLENGE_LAYER_EASY,
+        ChallengeLayer::Treacherous => CHALLENGE_LAYER_HARD,
+        ChallengeLayer::Roguelike => CHALLENGE_LAYER_ROGUELIKE,
+        ChallengeLayer::Crucible | ChallengeLayer::ShatteredRealm => CHALLENGE_LAYER_ENDLESS,
+    };
+    let modifiers = AffixComboModifiers::from(&get_record(arz, modifier_record.into()));
     let modifiers = if vendor {
         AffixComboWeights::default()
     } else {
