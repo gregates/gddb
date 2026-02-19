@@ -1,23 +1,22 @@
-use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek};
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use clap::builder::PossibleValue;
 
-use lib_gddb::affix::Affix;
-use lib_gddb::affix_combo_weights::{AffixComboModifiers, AffixComboWeights};
-use lib_gddb::affix_table::AffixTable;
-use lib_gddb::arc::Archive;
-use lib_gddb::arz::{Database, DatabaseValue, RawRecord, Record};
-use lib_gddb::item::Item;
-use lib_gddb::loot_table::LootTable;
-use lib_gddb::rarity::Rarity;
-use lib_gddb::tags;
+use lib_gddb::arz::Database;
+
+mod commands;
+mod util;
+
+use crate::util::{
+    install_path,
+    path_to,
+};
 
 const DB_GD: &str = "database/database.arz";
 const DB_AOM: &str = "gdx1/database/GDX1.arz";
@@ -52,6 +51,123 @@ struct Args {
 
     #[command(subcommand)]
     cmd: Action,
+}
+
+#[derive(Subcommand, Debug)]
+enum Action {
+    /// Generate csv for forum rowzero sheet import.
+    Csv,
+    /// Look up an item by name and list the records it appears in.
+    Item { name: OsString },
+    /// Show a fully resolved loot table.
+    Loot {
+        #[arg(short, long, default_value_t, value_enum)]
+        challenge: ChallengeLayer,
+        #[arg(short, long, default_value_t, value_enum)]
+        difficulty: Difficulty,
+        #[arg(short, long, default_value_t, value_enum)]
+        enemy: MobClass,
+        #[arg(short = 'b', long, default_value_t)]
+        /// Use chest modifiers, e.g., BossChest for enemy=Boss.
+        /// Always true in crucible or sr.
+        chest: bool,
+        #[arg(short, long, default_value_t)]
+        /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge.
+        vendor: bool,
+        #[arg(short, long, default_value_t)]
+        /// Only show possible prefixes; supercedes suffix if both are present.
+        prefix: bool,
+        #[arg(short, long, default_value_t)]
+        /// Only show possible suffixes.
+        suffix: bool,
+        #[arg(short, long, default_value_t)]
+        /// Include theoretically possible drops whose modified probability is zero.
+        zero: bool,
+        path_or_item_name: OsString,
+    },
+    /// Print the specified database record, or list the file tree at the path specified.
+    Show { path: Option<OsString> },
+    /// Resolve a tag to localized text.
+    Tag { tag: OsString },
+}
+
+fn main() {
+    let args = Args::parse();
+
+    INSTALL_PATH
+        .set(
+            args.install_path
+                .or(env::var("GRIM_DAWN_INSTALL_PATH").ok().map(|s| s.into()))
+                .map(|path| PathBuf::from(path))
+                .unwrap_or_else(|| {
+                    eprintln!("Please provide --install-path or set GRIM_DAWN_INSTALL_PATH");
+                    std::process::exit(1);
+                }),
+        )
+        .expect("INSTALL PATH initialized twice");
+
+    LANGUAGE
+        .set(args.language)
+        .expect("LANGUAGE initialized twice");
+
+    let mut dbs = open_dbs(args.xpac);
+
+    match args.cmd {
+        Action::Csv => commands::csv(dbs.as_mut_slice()),
+        Action::Loot {
+            path_or_item_name,
+            difficulty,
+            enemy,
+            challenge,
+            chest,
+            prefix,
+            suffix,
+            vendor,
+            zero,
+            ..
+        } => commands::loot(
+            dbs.as_mut_slice(),
+            path_or_item_name,
+            difficulty.into(),
+            enemy.into(),
+            challenge,
+            chest,
+            prefix,
+            suffix,
+            vendor,
+            zero,
+        ),
+        Action::Item { name } => commands::item(dbs.as_mut_slice(), name),
+        Action::Show { path } => commands::show(dbs.as_mut_slice(), path),
+        Action::Tag { tag } => commands::tag(tag.to_string_lossy()),
+    }
+}
+
+fn open_dbs(xpac: Option<usize>) -> Vec<Database<BufReader<File>>> {
+    let dbs = match xpac {
+        Some(0) => vec![DB_GD],
+        Some(1) => vec![DB_AOM],
+        Some(2) => vec![DB_FG],
+        Some(3) => vec![DB_FOA],
+        None => vec![DB_GD, DB_AOM, DB_FG, DB_FOA],
+        _ => {
+            eprintln!("xpac must be 0, 1, 2, or 3");
+            std::process::exit(1)
+        }
+    }
+    .iter()
+    .filter_map(|path| Database::open(&path_to(path)).ok())
+    .collect::<Vec<_>>();
+
+    if dbs.is_empty() {
+        eprintln!(
+            "Could not read database files. Please verify install path: {}",
+            install_path().display(),
+        );
+        std::process::exit(1);
+    }
+
+    dbs
 }
 
 #[derive(Default, Debug, Clone, Copy, ValueEnum)]
@@ -169,595 +285,4 @@ impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
-}
-
-#[derive(Subcommand, Debug)]
-enum Action {
-    /// Generate csv for forum rowzero sheet import.
-    Csv,
-    /// Look up an item by name and list the records it appears in.
-    Item { name: OsString },
-    /// Show a fully resolved loot table.
-    Loot {
-        #[arg(short, long, default_value_t, value_enum)]
-        challenge: ChallengeLayer,
-        #[arg(short, long, default_value_t, value_enum)]
-        difficulty: Difficulty,
-        #[arg(short, long, default_value_t, value_enum)]
-        enemy: MobClass,
-        #[arg(short = 'b', long, default_value_t)]
-        /// Use chest modifiers, e.g., BossChest for enemy=Boss.
-        /// Always true in crucible or sr.
-        chest: bool,
-        #[arg(short, long, default_value_t)]
-        /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge.
-        vendor: bool,
-        #[arg(short, long, default_value_t)]
-        /// Only show possible prefixes; supercedes suffix if both are present.
-        prefix: bool,
-        #[arg(short, long, default_value_t)]
-        /// Only show possible suffixes.
-        suffix: bool,
-        path_or_item_name: OsString,
-    },
-    /// Print the specified database record, or list the file tree at the path specified.
-    Show { path: Option<OsString> },
-    /// Resolve a tag to localized text.
-    Tag { tag: OsString },
-}
-
-fn main() {
-    let args = Args::parse();
-
-    INSTALL_PATH
-        .set(
-            args.install_path
-                .or(env::var("GRIM_DAWN_INSTALL_PATH").ok().map(|s| s.into()))
-                .map(|path| PathBuf::from(path))
-                .unwrap_or_else(|| {
-                    eprintln!("Please provide --install-path or set GRIM_DAWN_INSTALL_PATH");
-                    std::process::exit(1);
-                }),
-        )
-        .expect("INSTALL PATH initialized twice");
-
-    LANGUAGE
-        .set(args.language)
-        .expect("LANGUAGE initialized twice");
-
-    let mut dbs = open_dbs(args.xpac);
-
-    match args.cmd {
-        Action::Csv => csv(dbs.as_mut_slice()),
-        Action::Loot {
-            path_or_item_name,
-            difficulty,
-            enemy,
-            challenge,
-            chest,
-            prefix,
-            suffix,
-            vendor,
-            ..
-        } => loot_table(
-            dbs.as_mut_slice(),
-            path_or_item_name,
-            difficulty,
-            enemy,
-            challenge,
-            chest,
-            prefix,
-            suffix,
-            vendor,
-        ),
-        Action::Item { name } => item(dbs.as_mut_slice(), name),
-        Action::Show { path } => show(dbs.as_mut_slice(), path),
-        Action::Tag { tag } => lookup_tag(tag.to_string_lossy()),
-    }
-}
-
-fn csv<T: BufRead + Seek>(arz: &mut [Database<T>]) {
-    let tags = read_item_tags();
-    let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
-        .map(|record| Affix::from(record))
-        .collect::<Vec<_>>();
-    let affix_lookup = affixes
-        .iter()
-        .map(|affix| (affix.id.clone(), affix))
-        .collect::<HashMap<_, _>>();
-    let affix_tables = iter_records(arz, |_, raw| raw.kind == "LootRandomizerTable")
-        .map(|record| AffixTable::from(&record))
-        .collect::<Vec<_>>();
-    let affix_table_lookup = affix_tables
-        .into_iter()
-        .map(|table| (table.id.clone(), table))
-        .collect::<HashMap<_, _>>();
-    let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
-
-    let mut loot_tables: HashMap<String, LootTable> = Default::default();
-
-    for record in iter_records(arz, |id, raw| {
-        id.starts_with("records/items/loottables/") && raw.kind == "LootItemTable_DynWeight"
-    }) {
-        if record.id.contains("nemesis") && !record.id.contains("03") {
-            // Always use the 3rd nemesis table
-            continue;
-        }
-        if record.id.ends_with("tdyn_weaponstandin_a01.dbr") {
-            // References non-existent affix table
-            continue;
-        }
-        if record.id.ends_with("broken.dbr") {
-            // Not sure exactly what these are, but I don't think they're useful.
-            continue;
-        }
-        let loot_table = LootTable::from(&record);
-        loot_tables.insert(record.id.clone(), loot_table);
-    }
-
-    let rare_items = iter_records(arz, |id, _raw| {
-        id.starts_with("records/items/")
-            && !id.starts_with("records/items/lore")
-            && !id.starts_with("records/items/loot")
-            && !id.starts_with("records/items/misc")
-            && !id.starts_with("records/items/crafting")
-            && !id.starts_with("records/items/enemygear")
-        })
-        .map(|record| (record.id.clone(), Item::from(&record)))
-        .filter(|(_, item)| item.rarity == Rarity::Rare && item.level == 94)
-        .collect::<HashMap<_, _>>();
-
-    println!("Loot Table\tPrefix\tItem\tSuffix\tPrefix Tier\tSuffix Tier\tChance");
-    for (id, loot_table) in loot_tables {
-        let modifiers = modifiers.get(Difficulty::Ultimate.into(), MobClass::Boss.into(), false);
-        let mut resolved = loot_table.resolve(
-            100u32,
-            &modifiers,
-            &affix_table_lookup,
-            &affix_lookup,
-        );
-        resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
-        for loot in loot_table.loots {
-            let Some(loot) = rare_items.get(&loot.id) else { continue; };
-            let loot_name = tags.get(&loot.tag).unwrap_or_else(|| &loot.tag);
-            for (prefix, suffix, chance) in &resolved {
-                let p = prefix
-                    .map(|affix| affix.localize(&tags))
-                    .unwrap_or_default();
-                let s = suffix
-                    .map(|affix| affix.localize(&tags))
-                    .unwrap_or_default();
-                let pr = prefix
-                    .map(|affix| affix.rarity.to_string())
-                    .unwrap_or("None".to_string());
-                let sr = suffix
-                    .map(|affix| affix.rarity.to_string())
-                    .unwrap_or("None".to_string());
-                println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                    id, p, loot_name, s, pr, sr, chance
-                );
-            }
-        }
-    }
-}
-
-fn lookup_tag(tag: impl AsRef<str> + std::fmt::Display) {
-    let mut values = vec![];
-    for (xpac, mut arc) in (0..=3)
-        .into_iter()
-        .map(|xpac| (xpac, path_to(text_resource(xpac))))
-        .filter_map(|(xpac, path)| Archive::open(&path).ok().map(|arc| (xpac, arc)))
-    {
-        for record in arc.iter_records().unwrap().filter(|record| {
-            record
-                .as_ref()
-                .ok()
-                .filter(|record| record.id.contains("tag"))
-                .is_some()
-        }) {
-            let record = record.unwrap();
-            let tags = tags::parse(&record.data);
-            match tags {
-                Ok(tags) => {
-                    if let Some(text) = tags.get(tag.as_ref()).cloned() {
-                        values.push((xpac, record.id, text));
-                    }
-                }
-                Err(_e) => {} // eprintln!("failed to parse tags for {}: {:#?}", record.id, _e),
-            }
-        }
-    }
-    values.dedup_by(|(_, _, a), (_, _, b)| a == b);
-    if values.len() == 1 {
-        println!("{}", values[0].2);
-    } else if values.len() > 1 {
-        println!("Multiple tag values found:");
-        for (xpac, id, text) in values {
-            println!("{}/{} maps {} to {}", text_resource(xpac), id, tag, text);
-        }
-    } else {
-        eprintln!("Tag not found");
-    }
-}
-
-fn is_path(maybe_path: &OsString) -> bool {
-    maybe_path.to_string_lossy().ends_with(".dbr")
-}
-
-fn resolve_loot_table<T: BufRead + Seek>(arz: &mut [Database<T>], tags: &HashMap<String, String>, record: OsString) -> Record {
-    if is_path(&record) {
-        get_record(arz, record)
-    } else {
-        let (name, records) = lookup_items(arz, &tags, record);
-        let Some((item_id, _item)) = records.into_iter().max_by_key(|(_id, record)| record.data["itemLevel"].as_int().unwrap_or(0)) else {
-            eprintln!("No matching items found");
-            std::process::exit(0);
-        };
-        let mut loot_tables = iter_records(arz, |_, raw| raw.kind == "LootItemTable_DynWeight")
-            .filter(|record| record.data.iter().any(|(_, val)| val.as_string().as_ref() == Some(&item_id)))
-            .collect::<Vec<_>>();
-        if loot_tables.len() > 1 {
-            eprintln!("WARNING: Found multiple loot tables for {name}; using last table in this list:");
-            for table in loot_tables.iter() {
-                eprintln!("  {}", table.id);
-            }
-        }
-        let Some(table) = loot_tables.pop() else {
-            eprintln!("No loot table found for {name}");
-            std::process::exit(0);
-        };
-        table
-    }
-}
-
-fn loot_table<T: BufRead + Seek>(
-    arz: &mut [Database<T>],
-    record: OsString,
-    difficulty: Difficulty,
-    class: MobClass,
-    challenge: ChallengeLayer,
-    is_chest: bool,
-    prefix: bool,
-    suffix: bool,
-    vendor: bool,
-) {
-    let tags = read_item_tags();
-    let loot_table = resolve_loot_table(arz, &tags, record);
-    let loot_table = LootTable::from(&loot_table);
-    let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
-        .map(|record| Affix::from(record))
-        .collect::<Vec<_>>();
-    let affix_lookup = affixes
-        .iter()
-        .map(|affix| (affix.id.clone(), affix))
-        .collect::<HashMap<_, _>>();
-    let affix_tables = iter_records(arz, |_, raw| raw.kind == "LootRandomizerTable")
-        .map(|record| AffixTable::from(&record))
-        .collect::<Vec<_>>();
-    let affix_table_lookup = affix_tables
-        .into_iter()
-        .map(|table| (table.id.clone(), table))
-        .collect::<HashMap<_, _>>();
-    let modifier_record = match challenge {
-        ChallengeLayer::None => GAME_RANDOMIZER_WEIGHTS,
-        ChallengeLayer::Dangerous => CHALLENGE_LAYER_EASY,
-        ChallengeLayer::Treacherous => CHALLENGE_LAYER_HARD,
-        ChallengeLayer::Roguelike => CHALLENGE_LAYER_ROGUELIKE,
-        ChallengeLayer::Crucible | ChallengeLayer::ShatteredRealm => CHALLENGE_LAYER_ENDLESS,
-    };
-    let modifiers = AffixComboModifiers::from(&get_record(arz, modifier_record.into()));
-    let modifiers = if vendor {
-        AffixComboWeights::default()
-    } else {
-        let is_chest = is_chest || match challenge {
-            ChallengeLayer::Crucible | ChallengeLayer::ShatteredRealm => true,
-            _ => false,
-        };
-        modifiers.get(difficulty.into(), class.into(), is_chest)
-    };
-
-    if prefix {
-        let mut resolved =
-            loot_table.resolve_prefix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
-        resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
-        for (prefix, chance) in resolved {
-            print!("{:0.08}%\t", chance * 100f64);
-            let prefix = prefix.map(|p| p.localize(&tags)).unwrap_or_default();
-            println!("{prefix}");
-        }
-        return;
-    }
-
-    if suffix {
-        let mut resolved =
-            loot_table.resolve_suffix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
-        resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
-        for (suffix, chance) in resolved {
-            print!("{:0.08}%\t", chance * 100f64);
-            let suffix = suffix.map(|s| s.localize(&tags)).unwrap_or_default();
-            println!("{suffix}");
-        }
-        return;
-    }
-
-    let mut resolved = loot_table.resolve(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
-    resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
-    for (prefix, suffix, chance) in resolved {
-        print!("{:0.08}%\t", chance * 100f64);
-        let prefix = prefix.map(|p| p.localize(&tags)).unwrap_or_default();
-        print!("{prefix}\t");
-        let tabs = 2 - prefix.len() / 8;
-        for _ in 0..tabs {
-            print!("\t");
-        }
-        let suffix = suffix.map(|s| s.localize(&tags)).unwrap_or_default();
-        println!("{suffix}");
-    }
-}
-
-fn item<T: BufRead + Seek>(arz: &mut [Database<T>], item: OsString) {
-    let tags = read_item_tags();
-    let (name, records) = lookup_items(arz, &tags, item);
-    println!("{name} is referenced in the following database records:");
-    for (id, _record) in records {
-        println!("  {id}");
-    }
-}
-
-fn lookup_items<T: BufRead + Seek>(
-    arz: &mut [Database<T>],
-    tags: &HashMap<String, String>,
-    item: OsString,
-) -> (String, HashMap<String, Record>) {
-    let item = item.to_string_lossy();
-    let item_parts = item.split_ascii_whitespace().collect::<Vec<_>>();
-    let mut possible_tags = vec![];
-    for (tag, value) in tags.iter() {
-        if value.starts_with('"') {
-            // Quoted text is never an item name
-            continue;
-        }
-        if item_parts.iter().all(|part| value.contains(part)) {
-            possible_tags.push((tag, value));
-        }
-    }
-    if possible_tags.is_empty() {
-        eprintln!("No matching items found");
-        std::process::exit(0);
-    } else if possible_tags.len() > 1 {
-        if let Some(exact_match) = possible_tags.iter().find(|(_, v)| **v == item) {
-            possible_tags = vec![*exact_match];
-        } else {
-            possible_tags.sort_by_key(|(_, v)| *v);
-            println!("Multiple tags found, please disambiguate:");
-            for (_, value) in possible_tags.iter() {
-                println!("  {value}");
-            }
-            std::process::exit(0);
-        }
-    }
-    let (tag, name) = possible_tags.pop().expect("possible_tags.len() == 1");
-    let tag = DatabaseValue::String(tag.to_string());
-    let records = iter_records(arz, |id, _raw| id.starts_with("records/items"))
-        .filter(|record| record.data.get("itemNameTag") == Some(&tag))
-        .map(|record| (record.id.clone(), record))
-        .collect::<HashMap<_, _>>();
-
-    (name.to_string(), records)
-}
-
-fn get_record<T: BufRead + Seek>(arz: &mut [Database<T>], matches: OsString) -> Record {
-    let needle = matches.to_string_lossy();
-    let mut matches = iter_records(arz, |id, _| id == needle).collect::<Vec<_>>();
-    if matches.is_empty() {
-        eprintln!("not found: {needle}");
-        std::process::exit(1);
-    } else if matches.len() > 1 {
-        eprintln!(
-            "WARN: {} records found for {}; showing latest",
-            matches.len(),
-            needle
-        );
-    }
-    matches.pop().expect("record.len() > 0")
-}
-
-fn show<T: BufRead + Seek>(arz: &mut [Database<T>], record: Option<OsString>) {
-    let record = record.unwrap_or("".into());
-    if PathBuf::from(record.clone())
-        .extension()
-        .map(|ext| ext.to_str())
-        .flatten()
-        == Some("dbr")
-    {
-        print!("{}", get_record(arz, record));
-    } else {
-        ls(arz, Some(record));
-    }
-}
-
-fn ls<T: BufRead + Seek>(arz: &mut [Database<T>], prefix: Option<OsString>) {
-    let nexts = iter_record_ids(arz)
-        .filter_map(|id| {
-            let path = PathBuf::from(&id);
-            let path = match &prefix {
-                Some(prefix) => path.strip_prefix(prefix).ok()?.into(),
-                None => path,
-            };
-            let mut path = path.into_iter();
-            let next = path.next().map(|s| s.to_string_lossy().into_owned());
-            match path.next() {
-                Some(_) => next.map(|mut s| {
-                    s.push('/');
-                    s
-                }),
-                None => next,
-            }
-        })
-        .collect::<HashSet<_>>();
-    if nexts.is_empty() {
-        eprintln!(
-            "No database records match prefix {}",
-            PathBuf::from(prefix.unwrap_or("/".into())).display()
-        );
-    } else {
-        let mut sorted = Vec::with_capacity(nexts.len());
-        for path in nexts {
-            sorted.push(path);
-        }
-        sorted.sort();
-        for path in sorted {
-            println!("{path}");
-        }
-    }
-}
-
-fn iter_records<T: BufRead + Seek>(
-    arz: &mut [Database<T>],
-    p: impl Fn(&str, &RawRecord) -> bool,
-) -> impl Iterator<Item = Record> + '_ {
-    records_by_xpac(arz, p)
-        .into_iter()
-        .map(|db| db.into_iter())
-        .flatten()
-}
-
-fn iter_record_ids<T: BufRead + Seek>(
-    arz: &mut [Database<T>],
-) -> impl Iterator<Item = String> + '_ {
-    match load_raws_by_xpac(arz)
-        .into_iter()
-        .enumerate()
-        .map(|(i, raws)| {
-            raws.into_iter()
-                .map(|raw| arz[i].record_id(&raw))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(ids) => ids.into_iter().flat_map(|ids| ids.into_iter()),
-        Err(e) => {
-            eprintln!("Error parsing database records: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn load_raws_by_xpac<T: BufRead + Seek>(arz: &mut [Database<T>]) -> Vec<Vec<RawRecord>> {
-    arz.iter_mut()
-        .map(|db| {
-            db.iter_records()
-                .unwrap()
-                .map(|result| result.unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>()
-}
-
-fn records_by_xpac<T: BufRead + Seek>(
-    arz: &mut [Database<T>],
-    p: impl Fn(&str, &RawRecord) -> bool,
-) -> Vec<Vec<Record>> {
-    match load_raws_by_xpac(arz)
-        .into_iter()
-        .enumerate()
-        .map(|(i, raws)| {
-            raws.into_iter()
-                .filter_map(|raw| {
-                    let id = arz[i].record_id(&raw).ok()?;
-                    if p(id.as_str(), &raw) {
-                        Some(arz[i].resolve(raw))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(records) => records,
-        Err(e) => {
-            eprintln!("Error parsing database records: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn open_dbs(xpac: Option<usize>) -> Vec<Database<BufReader<File>>> {
-    let dbs = match xpac {
-        Some(0) => vec![DB_GD],
-        Some(1) => vec![DB_AOM],
-        Some(2) => vec![DB_FG],
-        Some(3) => vec![DB_FOA],
-        None => vec![DB_GD, DB_AOM, DB_FG, DB_FOA],
-        _ => {
-            eprintln!("xpac must be 0, 1, 2, or 3");
-            std::process::exit(1)
-        }
-    }
-    .iter()
-    .filter_map(|path| Database::open(&path_to(path)).ok())
-    .collect::<Vec<_>>();
-
-    if dbs.is_empty() {
-        eprintln!(
-            "Could not read database files. Please verify install path: {}",
-            install_path().display(),
-        );
-        std::process::exit(1);
-    }
-
-    dbs
-}
-
-fn read_item_tags() -> HashMap<String, String> {
-    let item_tags = (0..=3)
-        .into_iter()
-        .map(|xpac| path_to(text_resource(xpac)))
-        .enumerate()
-        .filter_map(|(i, path)| Archive::open(&path).ok().map(|arc| (i, arc)))
-        .map(|(i, mut arc)| {
-            let filename = if i > 0 {
-                format!("tagsgdx{i}_items.txt")
-            } else {
-                "tags_items.txt".to_string()
-            };
-            let item_tags = arc.get(filename.as_str()).unwrap();
-            tags::parse(&item_tags.data).unwrap()
-        })
-        .reduce(|mut acc, tags| {
-            acc.extend(tags.into_iter());
-            acc
-        });
-
-    let Some(item_tags) = item_tags else {
-        eprintln!(
-            "Could not read tag files. Please verify install path: {}",
-            install_path().display()
-        );
-        std::process::exit(1);
-    };
-
-    item_tags
-}
-
-fn install_path() -> &'static PathBuf {
-    INSTALL_PATH.get().unwrap()
-}
-
-fn path_to(path: impl AsRef<str>) -> PathBuf {
-    INSTALL_PATH.get().unwrap().join(path.as_ref())
-}
-
-fn text_resource(xpac: usize) -> String {
-    if xpac > 0 {
-        format!("gdx{}/{}{}{}", xpac, TAG_FILE, lang(), TAG_EXT)
-    } else {
-        format!("{}{}{}", TAG_FILE, lang(), TAG_EXT)
-    }
-}
-
-fn lang() -> Language {
-    *LANGUAGE.get().unwrap()
 }
