@@ -67,6 +67,8 @@ enum Action {
         difficulty: Difficulty,
         #[arg(short, long, default_value_t, value_enum)]
         enemy: MobClass,
+        #[arg(short, long, default_value_t, value_enum)]
+        affix: AffixesToShow,
         #[arg(short = 'b', long, default_value_t)]
         /// Use chest modifiers, e.g., BossChest for enemy=Boss.
         /// Always true in crucible or sr.
@@ -74,12 +76,6 @@ enum Action {
         #[arg(short, long, default_value_t)]
         /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge.
         vendor: bool,
-        #[arg(short, long, default_value_t)]
-        /// Only show possible prefixes; supercedes suffix if both are present.
-        prefix: bool,
-        #[arg(short, long, default_value_t)]
-        /// Only show possible suffixes.
-        suffix: bool,
         #[arg(short, long, default_value_t)]
         /// Include theoretically possible drops whose modified probability is zero.
         zero: bool,
@@ -120,8 +116,7 @@ fn main() {
             enemy,
             challenge,
             chest,
-            prefix,
-            suffix,
+            affix,
             vendor,
             zero,
             ..
@@ -132,8 +127,7 @@ fn main() {
             enemy.into(),
             challenge,
             chest,
-            prefix,
-            suffix,
+            affix,
             vendor,
             zero,
         ),
@@ -284,5 +278,31 @@ impl Language {
 impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+enum AffixesToShow {
+    Prefix,
+    Suffix,
+    #[default]
+    All,
+}
+
+impl ValueEnum for AffixesToShow {
+    fn value_variants<'a>() -> &'a[Self] {
+        &[
+            Self::Prefix,
+            Self::Suffix,
+            Self::All,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match self {
+            Self::Prefix => PossibleValue::new("prefix").alias("pre").alias("p"),
+            Self::Suffix => PossibleValue::new("suffix").alias("suf").alias("s"),
+            Self::All => PossibleValue::new("all").alias("both"),
+        })
     }
 }

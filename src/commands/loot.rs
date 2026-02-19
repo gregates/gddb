@@ -10,6 +10,7 @@ use lib_gddb::arz::{Database, Record};
 use lib_gddb::loot_table::LootTable;
 
 use crate::{
+    AffixesToShow,
     ChallengeLayer,
     CHALLENGE_LAYER_EASY,
     CHALLENGE_LAYER_HARD,
@@ -24,7 +25,7 @@ use crate::util::{
     TAGS,
 };
 
-const ZERO_THRESHHOLD: f64 = 0.0000001f64;
+const ZERO_THRESHHOLD: f64 = 0.00000000001f64;
 
 pub fn main<T: BufRead + Seek>(
     arz: &mut [Database<T>],
@@ -33,8 +34,7 @@ pub fn main<T: BufRead + Seek>(
     class: MobClass,
     challenge: ChallengeLayer,
     is_chest: bool,
-    prefix: bool,
-    suffix: bool,
+    affixes_to_show: AffixesToShow,
     vendor: bool,
     zero: bool,
 ) {
@@ -73,51 +73,51 @@ pub fn main<T: BufRead + Seek>(
         modifiers.get(difficulty, class, is_chest)
     };
 
-    if prefix {
-        let mut resolved =
-            loot_table.resolve_prefix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
-        resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
-        for (prefix, chance) in resolved {
-            if !zero && chance < ZERO_THRESHHOLD {
-                continue;
+    match affixes_to_show {
+        AffixesToShow::Prefix => {
+            let mut resolved =
+                loot_table.resolve_prefix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+            resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
+            for (prefix, chance) in resolved {
+                if !zero && chance < ZERO_THRESHHOLD {
+                    continue;
+                }
+                print!("{:0.08}%\t", chance * 100f64);
+                let prefix = prefix.map(|p| p.localize(tags)).unwrap_or_default();
+                println!("{prefix}");
             }
-            print!("{:0.08}%\t", chance * 100f64);
-            let prefix = prefix.map(|p| p.localize(tags)).unwrap_or_default();
-            println!("{prefix}");
         }
-        return;
-    }
-
-    if suffix {
-        let mut resolved =
-            loot_table.resolve_suffix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
-        resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
-        for (suffix, chance) in resolved {
-            if !zero && chance < ZERO_THRESHHOLD {
-                continue;
+        AffixesToShow::Suffix => {
+            let mut resolved =
+                loot_table.resolve_suffix(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+            resolved.sort_by(|(_, a), (_, b)| a.total_cmp(&b).reverse());
+            for (suffix, chance) in resolved {
+                if !zero && chance < ZERO_THRESHHOLD {
+                    continue;
+                }
+                print!("{:0.08}%\t", chance * 100f64);
+                let suffix = suffix.map(|s| s.localize(tags)).unwrap_or_default();
+                println!("{suffix}");
             }
-            print!("{:0.08}%\t", chance * 100f64);
-            let suffix = suffix.map(|s| s.localize(tags)).unwrap_or_default();
-            println!("{suffix}");
         }
-        return;
-    }
-
-    let mut resolved = loot_table.resolve(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
-    resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
-    for (prefix, suffix, chance) in resolved {
-        if !zero && chance < ZERO_THRESHHOLD {
-            continue;
+        AffixesToShow::All => {
+            let mut resolved = loot_table.resolve(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+            resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
+            for (prefix, suffix, chance) in resolved {
+                if !zero && chance < ZERO_THRESHHOLD {
+                    continue;
+                }
+                print!("{:0.08}%\t", chance * 100f64);
+                let prefix = prefix.map(|p| p.localize(tags)).unwrap_or_default();
+                print!("{prefix}\t");
+                let tabs = 2 - prefix.len() / 8;
+                for _ in 0..tabs {
+                    print!("\t");
+                }
+                let suffix = suffix.map(|s| s.localize(tags)).unwrap_or_default();
+                println!("{suffix}");
+            }
         }
-        print!("{:0.08}%\t", chance * 100f64);
-        let prefix = prefix.map(|p| p.localize(tags)).unwrap_or_default();
-        print!("{prefix}\t");
-        let tabs = 2 - prefix.len() / 8;
-        for _ in 0..tabs {
-            print!("\t");
-        }
-        let suffix = suffix.map(|s| s.localize(tags)).unwrap_or_default();
-        println!("{suffix}");
     }
 }
 
