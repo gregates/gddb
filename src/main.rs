@@ -1,12 +1,11 @@
-use std::env;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap::builder::PossibleValue;
+use clap_complete::engine::ArgValueCompleter;
 
 use lib_gddb::arz::Database;
 
@@ -14,6 +13,7 @@ mod commands;
 mod util;
 
 use crate::util::{
+    complete_record_path,
     install_path,
     path_to,
 };
@@ -32,16 +32,11 @@ const CHALLENGE_LAYER_HARD: &str = "records/game/challengeareas/challengelayer_h
 const CHALLENGE_LAYER_ROGUELIKE: &str = "records/game/challengeareas/challengelayer_hard.dbr";
 const CHALLENGE_LAYER_ENDLESS: &str = "records/game/challengeareas/challengelayer_endlessdungeontreasureroom.dbr";
 
-static INSTALL_PATH: OnceLock<PathBuf> = OnceLock::new();
 static LANGUAGE: OnceLock<Language> = OnceLock::new();
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, arg_required_else_help = true)]
 struct Args {
-    #[arg(short, long)]
-    /// Path to Grim Dawn installation
-    install_path: Option<OsString>,
-
     #[arg(short, long, default_value_t, ignore_case = true)]
     language: Language,
 
@@ -82,25 +77,17 @@ enum Action {
         path_or_item_name: OsString,
     },
     /// Print the specified database record, or list the file tree at the path specified.
-    Show { path: Option<OsString> },
+    Show {
+        #[arg(add = ArgValueCompleter::new(complete_record_path))]
+        path: Option<OsString>,
+    },
     /// Resolve a tag to localized text.
     Tag { tag: OsString },
 }
 
 fn main() {
+    clap_complete::CompleteEnv::with_factory(Args::command).complete();
     let args = Args::parse();
-
-    INSTALL_PATH
-        .set(
-            args.install_path
-                .or(env::var("GRIM_DAWN_INSTALL_PATH").ok().map(|s| s.into()))
-                .map(|path| PathBuf::from(path))
-                .unwrap_or_else(|| {
-                    eprintln!("Please provide --install-path or set GRIM_DAWN_INSTALL_PATH");
-                    std::process::exit(1);
-                }),
-        )
-        .expect("INSTALL PATH initialized twice");
 
     LANGUAGE
         .set(args.language)
@@ -155,7 +142,7 @@ fn open_dbs(xpac: Option<usize>) -> Vec<Database<BufReader<File>>> {
 
     if dbs.is_empty() {
         eprintln!(
-            "Could not read database files. Please verify install path: {}",
+            "Could not read database files. Please verify GRIM_DAWN_INSTALL_PATH: {}",
             install_path().display(),
         );
         std::process::exit(1);

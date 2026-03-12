@@ -1,19 +1,24 @@
-use std::collections::HashMap;
-use std::ffi::OsString;
-use std::io::{BufRead, Seek};
+use std::collections::{HashMap, HashSet};
+use std::ffi::{OsStr, OsString};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Seek};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
+use clap_complete::engine::CompletionCandidate;
 use lib_gddb::arc::Archive;
 use lib_gddb::arz::{Database, DatabaseValue, RawRecord, Record};
 use lib_gddb::tags;
 
 use crate::{
-    INSTALL_PATH,
     LANGUAGE,
     Language,
     TAG_FILE,
     TAG_EXT,
+    DB_GD,
+    DB_AOM,
+    DB_FG,
+    DB_FOA,
 };
 
 pub const TAGS: LazyLock<HashMap<String, String>> = LazyLock::new(|| read_item_tags());
@@ -117,14 +122,19 @@ fn lang() -> Language {
     *LANGUAGE.get().unwrap()
 }
 
-/// Returns the install path specified for this execution of the program.
-pub fn install_path() -> &'static PathBuf {
-    INSTALL_PATH.get().unwrap()
+/// Returns the install path from GRIM_DAWN_INSTALL_PATH env var.
+pub fn install_path() -> PathBuf {
+    std::env::var_os("GRIM_DAWN_INSTALL_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            eprintln!("Please set GRIM_DAWN_INSTALL_PATH");
+            std::process::exit(1);
+        })
 }
 
 /// Returns the fully qualified path for a resource file specified relative to install path.
 pub fn path_to(path: impl AsRef<str>) -> PathBuf {
-    INSTALL_PATH.get().unwrap().join(path.as_ref())
+    install_path().join(path.as_ref())
 }
 
 /// Returns the relative path to the text resource file for the specified xpac.
@@ -158,13 +168,79 @@ fn read_item_tags() -> HashMap<String, String> {
 
     let Some(item_tags) = item_tags else {
         eprintln!(
-            "Could not read tag files. Please verify install path: {}",
+            "Could not read tag files. Please verify GRIM_DAWN_INSTALL_PATH: {}",
             install_path().display()
         );
         std::process::exit(1);
     };
 
     item_tags
+}
+
+/// Given a set of record IDs and a prefix, returns the unique next path
+/// components (directories suffixed with `/`, files without).
+pub fn list_children(ids: impl Iterator<Item = String>, prefix: Option<&OsStr>) -> Vec<String> {
+    let nexts: HashSet<String> = ids
+        .filter_map(|id| {
+            let path = PathBuf::from(&id);
+            let path = match prefix {
+                Some(prefix) => path.strip_prefix(prefix).ok()?.into(),
+                None => path,
+            };
+            let mut path = path.into_iter();
+            let next = path.next().map(|s| s.to_string_lossy().into_owned());
+            match path.next() {
+                Some(_) => next.map(|mut s| {
+                    s.push('/');
+                    s
+                }),
+                None => next,
+            }
+        })
+        .collect();
+    let mut sorted: Vec<String> = nexts.into_iter().collect();
+    sorted.sort();
+    sorted
+}
+
+/// Completer for record paths, used by shell tab completion.
+pub fn complete_record_path(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(_) = std::env::var_os("GRIM_DAWN_INSTALL_PATH") else {
+        return vec![];
+    };
+
+    let mut dbs: Vec<Database<BufReader<File>>> = [DB_GD, DB_AOM, DB_FG, DB_FOA]
+        .iter()
+        .filter_map(|p| Database::open(&path_to(p)).ok())
+        .collect();
+
+    let ids = iter_record_ids(&mut dbs);
+    let current_str = current.to_string_lossy();
+
+    // Find the prefix directory portion (everything up to and including the last `/`)
+    let prefix = if current_str.contains('/') {
+        let last_slash = current_str.rfind('/').unwrap();
+        Some(OsString::from(&current_str[..=last_slash]))
+    } else {
+        None
+    };
+
+    let children = list_children(ids, prefix.as_deref());
+
+    let prefix_str = prefix.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+
+    children
+        .into_iter()
+        .filter(|child| {
+            // Filter to those matching the typed portion after the last `/`
+            let suffix = &current_str[prefix_str.len()..];
+            child.starts_with(suffix)
+        })
+        .map(|child| {
+            let full = format!("{}{}", prefix_str, child);
+            CompletionCandidate::new(full)
+        })
+        .collect()
 }
 
 /// Attempts to find the set of records for an item by item name.
