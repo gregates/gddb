@@ -37,6 +37,10 @@ static LANGUAGE: OnceLock<Language> = OnceLock::new();
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, arg_required_else_help = true)]
 struct Args {
+    #[arg(long, value_name = "SHELL")]
+    /// Print shell completion setup instructions
+    completions: Option<Shell>,
+
     #[arg(short, long, default_value_t, ignore_case = true)]
     language: Language,
 
@@ -45,7 +49,7 @@ struct Args {
     xpac: Option<usize>,
 
     #[command(subcommand)]
-    cmd: Action,
+    cmd: Option<Action>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -89,13 +93,23 @@ fn main() {
     clap_complete::CompleteEnv::with_factory(Args::command).complete();
     let args = Args::parse();
 
+    if let Some(shell) = args.completions {
+        print_completions(shell);
+        return;
+    }
+
+    let Some(cmd) = args.cmd else {
+        Args::command().print_help().ok();
+        std::process::exit(0);
+    };
+
     LANGUAGE
         .set(args.language)
         .expect("LANGUAGE initialized twice");
 
     let mut dbs = open_dbs(args.xpac);
 
-    match args.cmd {
+    match cmd {
         Action::Csv => commands::csv(dbs.as_mut_slice()),
         Action::Loot {
             path_or_item_name,
@@ -121,6 +135,29 @@ fn main() {
         Action::Item { name } => commands::item(dbs.as_mut_slice(), name),
         Action::Show { path } => commands::show(dbs.as_mut_slice(), path),
         Action::Tag { tag } => commands::tag(tag.to_string_lossy()),
+    }
+}
+
+fn print_completions(shell: Shell) {
+    let bin = std::env::args().next().unwrap_or_else(|| "gddb".to_string());
+    let bin = std::path::Path::new(&bin)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "gddb".to_string());
+
+    match shell {
+        Shell::Bash => {
+            println!("# Add this to your ~/.bashrc:");
+            println!("source <(COMPLETE=bash {bin})");
+        }
+        Shell::Zsh => {
+            println!("# Add this to your ~/.zshrc:");
+            println!("source <(COMPLETE=zsh {bin})");
+        }
+        Shell::Fish => {
+            println!("# Add this to your ~/.config/fish/config.fish:");
+            println!("COMPLETE=fish {bin} | source");
+        }
     }
 }
 
@@ -266,6 +303,13 @@ impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Shell {
+    Bash,
+    Zsh,
+    Fish,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
