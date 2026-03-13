@@ -58,6 +58,11 @@ kind: LevelTable
   templateName=database/templates/leveltable.tpl
 ```
 
+#### Tab completion
+
+The show command supports tab auto-complete of database file paths! This requires some setup in your
+shell. See `gddb --completions [SHELL]` for instructions.
+
 ### Tag
 Resolve a text tag, using the specified localization (default: English).
 ```
