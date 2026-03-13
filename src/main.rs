@@ -144,18 +144,22 @@ fn print_completions(shell: Shell) {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "gddb".to_string());
+    let install_path = install_path();
 
     match shell {
         Shell::Bash => {
             println!("# Add this to your ~/.bashrc:");
+            println!("export GRIM_DAWN_INSTALL_PATH={}", install_path.display());
             println!("source <(COMPLETE=bash {bin})");
         }
         Shell::Zsh => {
             println!("# Add this to your ~/.zshrc:");
+            println!("export GRIM_DAWN_INSTALL_PATH={}", install_path.display());
             println!("source <(COMPLETE=zsh {bin})");
         }
         Shell::Fish => {
             println!("# Add this to your ~/.config/fish/config.fish:");
+            println!("set -x GRIM_DAWN_INSTALL_PATH {}", install_path.display());
             println!("COMPLETE=fish {bin} | source");
         }
     }

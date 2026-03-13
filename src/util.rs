@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
+use std::fs::{canonicalize, File};
 use std::io::{BufRead, BufReader, Seek};
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -124,12 +124,16 @@ fn lang() -> Language {
 
 /// Returns the install path from GRIM_DAWN_INSTALL_PATH env var.
 pub fn install_path() -> PathBuf {
-    std::env::var_os("GRIM_DAWN_INSTALL_PATH")
+    let relative_path = std::env::var_os("GRIM_DAWN_INSTALL_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             eprintln!("Please set GRIM_DAWN_INSTALL_PATH");
             std::process::exit(1);
-        })
+        });
+    canonicalize(&relative_path).unwrap_or_else(|e| {
+        eprintln!("Could not be resolve GRIM_DAWN_INSTALL_PATH={}: {}", relative_path.display(), e);
+        std::process::exit(1);
+    })
 }
 
 /// Returns the fully qualified path for a resource file specified relative to install path.
