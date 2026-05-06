@@ -25,7 +25,7 @@ cargo install ./
 ```
 
 Database files are not included. You must have Grim Dawn installed on your system for the program
-to work. You can specify the path to the game files with either the `install-path` argument or by
+to work. You can specify the path to the game files by
 setting the `GRIM_DAWN_INSTALL_PATH` env variable.
 
 On WSL, I recommend copying the data to a location in your linux filesystem, or all
