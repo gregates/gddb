@@ -263,7 +263,7 @@ pub fn lookup_item<T: BufRead + Seek>(
             // Quoted text is never an item name
             continue;
         }
-        if item_parts.iter().all(|part| value.contains(part)) {
+        if item_parts.iter().all(|part| value.to_lowercase().contains(&part.to_lowercase())) {
             possible_tags.push((tag, value));
         }
     }
