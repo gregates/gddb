@@ -21,7 +21,7 @@ them could be wrong. Compatibilty with past and future versions of the game is n
 ```
 git clone https://github.com/gregates/gddb.git
 cd gddb
-cargo install ./
+cargo install --path .
 ```
 
 Database files are not included. You must have Grim Dawn installed on your system for the program
