@@ -3,14 +3,14 @@ use lib_gddb::tags;
 
 use crate::util::{
     path_to,
-    text_resource,
+    text_resource_path,
 };
 
 pub fn main(tag: impl AsRef<str> + std::fmt::Display) {
     let mut values = vec![];
     for (xpac, mut arc) in (0..=3)
         .into_iter()
-        .map(|xpac| (xpac, path_to(text_resource(xpac))))
+        .map(|xpac| (xpac, path_to(text_resource_path(xpac))))
         .filter_map(|(xpac, path)| Archive::open(&path).ok().map(|arc| (xpac, arc)))
     {
         for record in arc.iter_records().unwrap().filter(|record| {
@@ -38,7 +38,7 @@ pub fn main(tag: impl AsRef<str> + std::fmt::Display) {
     } else if values.len() > 1 {
         println!("Multiple tag values found:");
         for (xpac, id, text) in values {
-            println!("{}/{} maps {} to {}", text_resource(xpac), id, tag, text);
+            println!("{}/{} maps {} to {}", text_resource_path(xpac), id, tag, text);
         }
     } else {
         eprintln!("Tag not found");

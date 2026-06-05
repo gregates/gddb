@@ -1,45 +1,37 @@
 use std::collections::HashMap;
-use std::io::{BufRead, Seek};
-
 use lib_gddb::{Difficulty, MobClass};
 use lib_gddb::affix::Affix;
 use lib_gddb::affix_combo_weights::AffixComboModifiers;
 use lib_gddb::affix_table::AffixTable;
-use lib_gddb::arz::Database;
 use lib_gddb::item::Item;
 use lib_gddb::loot_table::LootTable;
 use lib_gddb::rarity::Rarity;
 
 use crate::GAME_RANDOMIZER_WEIGHTS;
-use crate::util::{
-    get_record,
-    iter_records,
-    TAGS,
-};
+use crate::database::Database;
+use crate::util::TAGS;
 
-pub fn main<T: BufRead + Seek>(
-    arz: &mut [Database<T>],
-) {
+pub fn main(db: &mut Database) {
     let tags = &*TAGS;
-    let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
+    let affixes = db.iter_records(|_, raw| raw.kind == "LootRandomizer")
         .map(|record| Affix::from(record))
         .collect::<Vec<_>>();
     let affix_lookup = affixes
         .iter()
         .map(|affix| (affix.id.clone(), affix))
         .collect::<HashMap<_, _>>();
-    let affix_tables = iter_records(arz, |_, raw| raw.kind == "LootRandomizerTable")
+    let affix_tables = db.iter_records(|_, raw| raw.kind == "LootRandomizerTable")
         .map(|record| AffixTable::from(&record))
         .collect::<Vec<_>>();
     let affix_table_lookup = affix_tables
         .into_iter()
         .map(|table| (table.id.clone(), table))
         .collect::<HashMap<_, _>>();
-    let modifiers = AffixComboModifiers::from(&get_record(arz, GAME_RANDOMIZER_WEIGHTS.into()));
+    let modifiers = AffixComboModifiers::from(&db.get_record(GAME_RANDOMIZER_WEIGHTS.into()));
 
     let mut loot_tables: HashMap<String, LootTable> = Default::default();
 
-    for record in iter_records(arz, |id, raw| {
+    for record in db.iter_records(|id, raw| {
         id.starts_with("records/items/loottables/") && raw.kind == "LootItemTable_DynWeight"
     }) {
         if record.id.contains("nemesis") && !record.id.contains("03") {
@@ -58,7 +50,7 @@ pub fn main<T: BufRead + Seek>(
         loot_tables.insert(record.id.clone(), loot_table);
     }
 
-    let rare_items = iter_records(arz, |id, _raw| {
+    let rare_items = db.iter_records(|id, _raw| {
         id.starts_with("records/items/")
             && !id.starts_with("records/items/lore")
             && !id.starts_with("records/items/loot")

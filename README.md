@@ -63,6 +63,27 @@ kind: LevelTable
 The show command supports tab auto-complete of database file paths! This requires some setup in your
 shell. See `gddb --completions [SHELL]` for instructions.
 
+### Grep
+Searches all database files and text localization resources whose contents match the provided regex.
+Prints expac (if any), record/file path, line number, and line.
+```
+$ gddb grep -l en -i "gun2hc\d03" 
+records/items/gearweapons/guns2h/c007_gun2h.dbr:161:itemNameTag=tagWeaponGun2hC003
+records/items/gearweapons/guns2h/c036_gun2h.dbr:162:itemNameTag=tagWeaponGun2hC003
+gdx1:records/items/upgraded/gearweapons/guns2h/c036_gun2h.dbr:166:itemNameTag=tagWeaponGun2hC003
+gdx1:records/items/gearweapons/guns2h/c103_gun2h.dbr:166:itemNameTag=tagGDX1WeaponGun2hC103
+gdx1:records/items/gearweapons/guns2h/c007_gun2h.dbr:163:itemNameTag=tagWeaponGun2hC003
+gdx1:records/items/gearweapons/guns2h/c036_gun2h.dbr:164:itemNameTag=tagWeaponGun2hC003
+gdx1:records/items/gearweapons/guns2h/c109_gun2h.dbr:166:itemNameTag=tagGDX1WeaponGun2hC103
+gdx2:records/items/gearweapons/guns2h/c109_gun2h.dbr:168:itemNameTag=tagGDX1WeaponGun2hC103
+gdx2:records/items/gearweapons/guns2h/c007_gun2h.dbr:165:itemNameTag=tagWeaponGun2hC003
+gdx2:records/items/gearweapons/guns2h/c103_gun2h.dbr:168:itemNameTag=tagGDX1WeaponGun2hC103
+gdx2:records/items/gearweapons/guns2h/c036_gun2h.dbr:166:itemNameTag=tagWeaponGun2hC003
+gdx2:records/items/upgraded/gearweapons/guns2h/c036_gun2h.dbr:168:itemNameTag=tagWeaponGun2hC003
+gdx1:resources/Text_EN.arc/tagsgdx1_items.txt:118:tagGDX1WeaponGun2hC103=Burning Purifier
+resources/Text_EN.arc/tags_items.txt:306:tagWeaponGun2hC003=Hellmaw Shotgun
+```
+
 ### Tag
 Resolve a text tag, using the specified localization (default: English).
 ```

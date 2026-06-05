@@ -1,16 +1,10 @@
 use std::ffi::OsString;
-use std::io::{BufRead, Seek};
 use std::path::PathBuf;
 
-use lib_gddb::arz::Database;
+use crate::database::Database;
+use crate::util::list_children;
 
-use crate::util::{
-    get_record,
-    iter_record_ids,
-    list_children,
-};
-
-pub fn main<T: BufRead + Seek>(arz: &mut [Database<T>], record: Option<OsString>) {
+pub fn main(db: &mut Database, record: Option<OsString>) {
     let record = record.unwrap_or("".into());
     if PathBuf::from(record.clone())
         .extension()
@@ -18,14 +12,14 @@ pub fn main<T: BufRead + Seek>(arz: &mut [Database<T>], record: Option<OsString>
         .flatten()
         == Some("dbr")
     {
-        print!("{}", get_record(arz, record));
+        print!("{}", db.get_record(record));
     } else {
-        ls(arz, Some(record));
+        ls(db, Some(record));
     }
 }
 
-fn ls<T: BufRead + Seek>(arz: &mut [Database<T>], prefix: Option<OsString>) {
-    let ids = iter_record_ids(arz);
+fn ls(db: &mut Database, prefix: Option<OsString>) {
+    let ids = db.iter_record_ids();
     let children = list_children(ids, prefix.as_deref());
     if children.is_empty() {
         eprintln!(

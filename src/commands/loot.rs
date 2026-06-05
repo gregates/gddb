@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::io::{BufRead, Seek};
 
 use lib_gddb::{Difficulty, MobClass};
 use lib_gddb::affix::Affix;
 use lib_gddb::affix_combo_weights::{AffixComboModifiers, AffixComboWeights};
 use lib_gddb::affix_table::AffixTable;
-use lib_gddb::arz::{Database, Record};
+use lib_gddb::arz::Record;
 use lib_gddb::loot_table::LootTable;
 
 use crate::{
@@ -18,17 +17,13 @@ use crate::{
     CHALLENGE_LAYER_ENDLESS,
     GAME_RANDOMIZER_WEIGHTS,
 };
-use crate::util::{
-    get_record,
-    iter_records,
-    lookup_item,
-    TAGS,
-};
+use crate::database::Database;
+use crate::util::TAGS;
 
 const ZERO_THRESHHOLD: f64 = 0.00000000001f64;
 
-pub fn main<T: BufRead + Seek>(
-    arz: &mut [Database<T>],
+pub fn main(
+    db: &mut Database,
     record: OsString,
     difficulty: Difficulty,
     class: MobClass,
@@ -39,16 +34,16 @@ pub fn main<T: BufRead + Seek>(
     zero: bool,
 ) {
     let tags = &*TAGS;
-    let loot_table = resolve_loot_table(arz, record);
+    let loot_table = resolve_loot_table(db, record);
     let loot_table = LootTable::from(&loot_table);
-    let affixes = iter_records(arz, |_, raw| raw.kind == "LootRandomizer")
+    let affixes = db.iter_records(|_, raw| raw.kind == "LootRandomizer")
         .map(|record| Affix::from(record))
         .collect::<Vec<_>>();
     let affix_lookup = affixes
         .iter()
         .map(|affix| (affix.id.clone(), affix))
         .collect::<HashMap<_, _>>();
-    let affix_tables = iter_records(arz, |_, raw| raw.kind == "LootRandomizerTable")
+    let affix_tables = db.iter_records(|_, raw| raw.kind == "LootRandomizerTable")
         .map(|record| AffixTable::from(&record))
         .collect::<Vec<_>>();
     let affix_table_lookup = affix_tables
@@ -62,7 +57,7 @@ pub fn main<T: BufRead + Seek>(
         ChallengeLayer::Roguelike => CHALLENGE_LAYER_ROGUELIKE,
         ChallengeLayer::Crucible | ChallengeLayer::ShatteredRealm => CHALLENGE_LAYER_ENDLESS,
     };
-    let modifiers = AffixComboModifiers::from(&get_record(arz, modifier_record.into()));
+    let modifiers = AffixComboModifiers::from(&db.get_record(modifier_record.into()));
     let modifiers = if vendor {
         AffixComboWeights::default()
     } else {
@@ -121,17 +116,17 @@ pub fn main<T: BufRead + Seek>(
     }
 }
 
-fn resolve_loot_table<T: BufRead + Seek>(arz: &mut [Database<T>], record: OsString) -> Record {
+fn resolve_loot_table(db: &mut Database, record: OsString) -> Record {
 
     if is_path(&record) {
-        get_record(arz, record)
+        db.get_record(record)
     } else {
-        let (name, records) = lookup_item(arz, record);
+        let (name, records) = db.lookup_item(record);
         let Some((item_id, _item)) = records.into_iter().max_by_key(|(_id, record)| record.data["itemLevel"].as_int().unwrap_or(0)) else {
             eprintln!("No matching items found");
             std::process::exit(0);
         };
-        let mut loot_tables = iter_records(arz, |_, raw| raw.kind == "LootItemTable_DynWeight")
+        let mut loot_tables = db.iter_records(|_, raw| raw.kind == "LootItemTable_DynWeight")
             .filter(|record| record.data.iter().any(|(_, val)| val.as_string().as_ref() == Some(&item_id)))
             .collect::<Vec<_>>();
         if loot_tables.len() > 1 {

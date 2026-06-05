@@ -1,21 +1,18 @@
 use std::ffi::OsString;
-use std::fs::File;
-use std::io::BufReader;
 use std::sync::OnceLock;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap::builder::PossibleValue;
 use clap_complete::engine::ArgValueCompleter;
 
-use lib_gddb::arz::Database;
-
 mod commands;
+mod database;
 mod util;
 
+use crate::database::Database;
 use crate::util::{
     complete_record_path,
     install_path,
-    path_to,
 };
 
 const DB_GD: &str = "database/database.arz";
@@ -23,7 +20,8 @@ const DB_AOM: &str = "gdx1/database/GDX1.arz";
 const DB_FG: &str = "gdx2/database/GDX2.arz";
 const DB_FOA: &str = "gdx3/database/GDX3.arz";
 
-const TAG_FILE: &str = "resources/Text_";
+const TAG_DIR: &str = "resources";
+const TAG_FILE_PREFIX: &str = "Text_";
 const TAG_EXT: &str = ".arc";
 
 const GAME_RANDOMIZER_WEIGHTS: &str = "records/game/gamerandomizerweights.dbr";
@@ -56,6 +54,19 @@ struct Args {
 enum Action {
     /// Generate csv for forum rowzero sheet import.
     Csv,
+    /// Search all database records and text resources for lines matching a regex.
+    Grep {
+        #[arg(short = 'i', long)]
+        /// Case-insensitive matching.
+        ignore_case: bool,
+        #[arg(short = 'F', long)]
+        /// Match the pattern as a literal string instead of a regex.
+        fixed_strings: bool,
+        #[arg(short, long)]
+        /// Restrict search over text resources.
+        language: Option<Language>,
+        pattern: OsString,
+    },
     /// Look up an item by name and list the records it appears in.
     Item { name: OsString },
     /// Show a fully resolved loot table.
@@ -107,10 +118,25 @@ fn main() {
         .set(args.language)
         .expect("LANGUAGE initialized twice");
 
-    let mut dbs = open_dbs(args.xpac);
+    let mut db = match args.xpac {
+        Some(xpac) => Database::load_one(xpac),
+        None => Database::load_all(),
+    };
 
     match cmd {
-        Action::Csv => commands::csv(dbs.as_mut_slice()),
+        Action::Csv => commands::csv(&mut db),
+        Action::Grep {
+            pattern,
+            ignore_case,
+            fixed_strings,
+            language,
+        } => commands::grep(
+            &mut db,
+            pattern,
+            ignore_case,
+            fixed_strings,
+            language,
+        ),
         Action::Loot {
             path_or_item_name,
             difficulty,
@@ -122,7 +148,7 @@ fn main() {
             zero,
             ..
         } => commands::loot(
-            dbs.as_mut_slice(),
+            &mut db,
             path_or_item_name,
             difficulty.into(),
             enemy.into(),
@@ -132,8 +158,8 @@ fn main() {
             vendor,
             zero,
         ),
-        Action::Item { name } => commands::item(dbs.as_mut_slice(), name),
-        Action::Show { path } => commands::show(dbs.as_mut_slice(), path),
+        Action::Item { name } => commands::item(&mut db, name),
+        Action::Show { path } => commands::show(&mut db, path),
         Action::Tag { tag } => commands::tag(tag.to_string_lossy()),
     }
 }
@@ -163,33 +189,6 @@ fn print_completions(shell: Shell) {
             println!("COMPLETE=fish {bin} | source");
         }
     }
-}
-
-fn open_dbs(xpac: Option<usize>) -> Vec<Database<BufReader<File>>> {
-    let dbs = match xpac {
-        Some(0) => vec![DB_GD],
-        Some(1) => vec![DB_AOM],
-        Some(2) => vec![DB_FG],
-        Some(3) => vec![DB_FOA],
-        None => vec![DB_GD, DB_AOM, DB_FG, DB_FOA],
-        _ => {
-            eprintln!("xpac must be 0, 1, 2, or 3");
-            std::process::exit(1)
-        }
-    }
-    .iter()
-    .filter_map(|path| Database::open(&path_to(path)).ok())
-    .collect::<Vec<_>>();
-
-    if dbs.is_empty() {
-        eprintln!(
-            "Could not read database files. Please verify GRIM_DAWN_INSTALL_PATH: {}",
-            install_path().display(),
-        );
-        std::process::exit(1);
-    }
-
-    dbs
 }
 
 #[derive(Default, Debug, Clone, Copy, ValueEnum)]
