@@ -93,6 +93,9 @@ enum Action {
     },
     /// Print the specified database record, or list the file tree at the path specified.
     Show {
+        #[arg(short, long)]
+        /// List all database records.
+        all: bool,
         #[arg(add = ArgValueCompleter::new(complete_record_path))]
         path: Option<OsString>,
     },
@@ -159,7 +162,7 @@ fn main() {
             zero,
         ),
         Action::Item { name } => commands::item(&mut db, name),
-        Action::Show { path } => commands::show(&mut db, path),
+        Action::Show { path, all } => commands::show(&mut db, path, all),
         Action::Tag { tag } => commands::tag(tag.to_string_lossy()),
     }
 }
