@@ -5,7 +5,7 @@ use lib_gddb::arc::Archive;
 use regex::{Regex, RegexBuilder, escape};
 
 use crate::database::Database;
-use crate::Language;
+use crate::{Language, Source};
 use crate::util::{path_to, text_resource_paths};
 
 // git grep-like colors, emitted only when writing to a terminal.
@@ -30,13 +30,15 @@ const RESET: &str = "\x1b[0m";
 /// `show` and helps distinguish a base record from an expansion's override.
 ///
 /// With `ignore_case`, matching is case-insensitive; with `fixed_strings`, the
-/// pattern is matched literally rather than as a regex.
+/// pattern is matched literally rather than as a regex. `source` selects which
+/// corpora are searched: database records, text resources, or both.
 pub fn main(
     db: &mut Database,
     pattern: OsString,
     ignore_case: bool,
     fixed_strings: bool,
     language: Option<Language>,
+    source: Source,
 ) {
     let pattern = pattern.to_string_lossy();
     let needle = if fixed_strings {
@@ -57,8 +59,12 @@ pub fn main(
 
     let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
 
-    grep_databases(db, &re, color);
-    grep_text_resources(&re, color, language);
+    if matches!(source, Source::Both | Source::Database) {
+        grep_databases(db, &re, color);
+    }
+    if matches!(source, Source::Both | Source::Text) {
+        grep_text_resources(&re, color, language);
+    }
 }
 
 /// Searches resolved `.arz` records. Each `key=value` entry is one line.

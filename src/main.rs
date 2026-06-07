@@ -65,6 +65,8 @@ enum Action {
         #[arg(short, long)]
         /// Restrict search over text resources.
         language: Option<Language>,
+        #[command(flatten)]
+        source: SourceFilter,
         pattern: OsString,
     },
     /// Look up an item by name and list the records it appears in.
@@ -103,6 +105,38 @@ enum Action {
     Tag { tag: OsString },
 }
 
+/// Which corpora `grep` searches. Mutually exclusive at the CLI; defaults to both.
+#[derive(Debug, Clone, Copy)]
+enum Source {
+    Both,
+    Database,
+    Text,
+}
+
+/// The mutually-exclusive source flags for `grep`. `database` and `text` share a
+/// clap group, so at most one may be set; neither set means both are searched.
+#[derive(clap::Args, Debug)]
+struct SourceFilter {
+    #[arg(short, long, group = "source")]
+    /// Search only database records.
+    database: bool,
+    #[arg(short, long, group = "source")]
+    /// Search only text resources.
+    text: bool,
+}
+
+impl SourceFilter {
+    fn resolve(&self) -> Source {
+        if self.database {
+            Source::Database
+        } else if self.text {
+            Source::Text
+        } else {
+            Source::Both
+        }
+    }
+}
+
 fn main() {
     clap_complete::CompleteEnv::with_factory(Args::command).complete();
     let args = Args::parse();
@@ -133,12 +167,14 @@ fn main() {
             ignore_case,
             fixed_strings,
             language,
+            source,
         } => commands::grep(
             &mut db,
             pattern,
             ignore_case,
             fixed_strings,
             language,
+            source.resolve(),
         ),
         Action::Loot {
             path_or_item_name,
