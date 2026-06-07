@@ -8,18 +8,8 @@ use clap_complete::engine::CompletionCandidate;
 use lib_gddb::arc::Archive;
 use lib_gddb::tags;
 
-use crate::{
-    LANGUAGE,
-    Language,
-    TAG_DIR,
-    TAG_FILE_PREFIX,
-    TAG_EXT,
-    DB_GD,
-    DB_AOM,
-    DB_FG,
-    DB_FOA,
-};
 use crate::database::Database;
+use crate::{DB_AOM, DB_FG, DB_FOA, DB_GD, LANGUAGE, Language, TAG_DIR, TAG_EXT, TAG_FILE_PREFIX};
 
 const XPAC_PATHS: [&'static str; 4] = [DB_GD, DB_AOM, DB_FG, DB_FOA];
 
@@ -46,7 +36,11 @@ pub fn install_path() -> PathBuf {
             std::process::exit(1);
         });
     canonicalize(&relative_path).unwrap_or_else(|e| {
-        eprintln!("Could not be resolve GRIM_DAWN_INSTALL_PATH={}: {}", relative_path.display(), e);
+        eprintln!(
+            "Could not be resolve GRIM_DAWN_INSTALL_PATH={}: {}",
+            relative_path.display(),
+            e
+        );
         std::process::exit(1);
     })
 }
@@ -59,7 +53,14 @@ pub fn path_to(path: impl AsRef<str>) -> PathBuf {
 /// Returns the relative path to the text resource file for the specified xpac.
 pub fn text_resource_path(xpac: usize) -> String {
     if xpac > 0 {
-        format!("gdx{}/{}/{}{}{}", xpac, TAG_DIR, TAG_FILE_PREFIX, lang(), TAG_EXT)
+        format!(
+            "gdx{}/{}/{}{}{}",
+            xpac,
+            TAG_DIR,
+            TAG_FILE_PREFIX,
+            lang(),
+            TAG_EXT
+        )
     } else {
         format!("{}/{}{}{}", TAG_DIR, TAG_FILE_PREFIX, lang(), TAG_EXT)
     }
@@ -176,7 +177,10 @@ pub fn complete_record_path(current: &OsStr) -> Vec<CompletionCandidate> {
 
     let children = list_children(ids, prefix.as_deref());
 
-    let prefix_str = prefix.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let prefix_str = prefix
+        .as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
 
     children
         .into_iter()
@@ -191,4 +195,3 @@ pub fn complete_record_path(current: &OsStr) -> Vec<CompletionCandidate> {
         })
         .collect()
 }
-

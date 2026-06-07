@@ -1,10 +1,7 @@
 use lib_gddb::arc::Archive;
 use lib_gddb::tags;
 
-use crate::util::{
-    path_to,
-    text_resource_path,
-};
+use crate::util::{path_to, text_resource_path};
 
 pub fn main(tag: impl AsRef<str> + std::fmt::Display) {
     let mut values = vec![];
@@ -38,7 +35,13 @@ pub fn main(tag: impl AsRef<str> + std::fmt::Display) {
     } else if values.len() > 1 {
         println!("Multiple tag values found:");
         for (xpac, id, text) in values {
-            println!("{}/{} maps {} to {}", text_resource_path(xpac), id, tag, text);
+            println!(
+                "{}/{} maps {} to {}",
+                text_resource_path(xpac),
+                id,
+                tag,
+                text
+            );
         }
     } else {
         eprintln!("Tag not found");

@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 use std::sync::OnceLock;
 
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap::builder::PossibleValue;
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCompleter;
 
 mod commands;
@@ -10,10 +10,7 @@ mod database;
 mod util;
 
 use crate::database::Database;
-use crate::util::{
-    complete_record_path,
-    install_path,
-};
+use crate::util::{complete_record_path, install_path};
 
 const DB_GD: &str = "database/database.arz";
 const DB_AOM: &str = "gdx1/database/GDX1.arz";
@@ -28,7 +25,8 @@ const GAME_RANDOMIZER_WEIGHTS: &str = "records/game/gamerandomizerweights.dbr";
 const CHALLENGE_LAYER_EASY: &str = "records/game/challengeareas/challengelayer_easy.dbr";
 const CHALLENGE_LAYER_HARD: &str = "records/game/challengeareas/challengelayer_hard.dbr";
 const CHALLENGE_LAYER_ROGUELIKE: &str = "records/game/challengeareas/challengelayer_hard.dbr";
-const CHALLENGE_LAYER_ENDLESS: &str = "records/game/challengeareas/challengelayer_endlessdungeontreasureroom.dbr";
+const CHALLENGE_LAYER_ENDLESS: &str =
+    "records/game/challengeareas/challengelayer_endlessdungeontreasureroom.dbr";
 
 static LANGUAGE: OnceLock<Language> = OnceLock::new();
 
@@ -204,7 +202,9 @@ fn main() {
 }
 
 fn print_completions(shell: Shell) {
-    let bin = std::env::args().next().unwrap_or_else(|| "gddb".to_string());
+    let bin = std::env::args()
+        .next()
+        .unwrap_or_else(|| "gddb".to_string());
     let bin = std::path::Path::new(&bin)
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
@@ -280,7 +280,7 @@ enum ChallengeLayer {
 }
 
 impl ValueEnum for ChallengeLayer {
-    fn value_variants<'a>() -> &'a[Self] {
+    fn value_variants<'a>() -> &'a [Self] {
         &[
             Self::None,
             Self::Dangerous,
@@ -296,9 +296,24 @@ impl ValueEnum for ChallengeLayer {
             Self::None => PossibleValue::new("none").alias("null").alias("0"),
             Self::Dangerous => PossibleValue::new("dangerous").alias("easy").alias("1"),
             Self::Treacherous => PossibleValue::new("treacherous").alias("hard").alias("2"),
-            Self::Roguelike => PossibleValue::new("forbidden").alias("roguelike").alias("rogue-like").alias("dungeon").alias("skeleton-key").alias("skeleton-key-dungeon").alias("roguelike-dungeon").alias("3"),
-            Self::Crucible => PossibleValue::new("crucible").alias("cruci").alias("4").alias("4+"),
-            Self::ShatteredRealm => PossibleValue::new("sr").alias("shatteredrealm").alias("shattered-realm").alias("endless").alias("endlessdungeon").alias("endlessdungeontreasureroom"),
+            Self::Roguelike => PossibleValue::new("forbidden")
+                .alias("roguelike")
+                .alias("rogue-like")
+                .alias("dungeon")
+                .alias("skeleton-key")
+                .alias("skeleton-key-dungeon")
+                .alias("roguelike-dungeon")
+                .alias("3"),
+            Self::Crucible => PossibleValue::new("crucible")
+                .alias("cruci")
+                .alias("4")
+                .alias("4+"),
+            Self::ShatteredRealm => PossibleValue::new("sr")
+                .alias("shatteredrealm")
+                .alias("shattered-realm")
+                .alias("endless")
+                .alias("endlessdungeon")
+                .alias("endlessdungeontreasureroom"),
         })
     }
 }
@@ -363,12 +378,8 @@ enum AffixesToShow {
 }
 
 impl ValueEnum for AffixesToShow {
-    fn value_variants<'a>() -> &'a[Self] {
-        &[
-            Self::Prefix,
-            Self::Suffix,
-            Self::All,
-        ]
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Prefix, Self::Suffix, Self::All]
     }
 
     fn to_possible_value(&self) -> Option<PossibleValue> {

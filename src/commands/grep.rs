@@ -5,8 +5,8 @@ use lib_gddb::arc::Archive;
 use regex::{Regex, RegexBuilder, escape};
 
 use crate::database::Database;
-use crate::{Language, Source};
 use crate::util::{path_to, text_resource_paths};
+use crate::{Language, Source};
 
 // git grep-like colors, emitted only when writing to a terminal.
 const EXPAC: &str = "\x1b[31m"; // red

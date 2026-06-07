@@ -1,10 +1,10 @@
+use lib_gddb::arz::{Database as Arz, DatabaseValue, RawRecord, Record};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufReader;
-use lib_gddb::arz::{Database as Arz, DatabaseValue, RawRecord, Record};
 
-use crate::util::{xpac_db_path, path_to, TAGS};
+use crate::util::{TAGS, path_to, xpac_db_path};
 
 #[derive(Default)]
 pub struct Database {
@@ -45,8 +45,8 @@ impl Database {
     }
 
     /// Gets a specific record from any of the provided databases by id.
-/// If more than one record with that id exists, the last one is
-/// returned.
+    /// If more than one record with that id exists, the last one is
+    /// returned.
     pub fn get_record(&mut self, matches: OsString) -> Record {
         let needle = matches.to_string_lossy();
         let mut matches = self.iter_records(|id, _| id == needle).collect::<Vec<_>>();
@@ -78,8 +78,7 @@ impl Database {
         &mut self,
         p: impl Fn(&str, &RawRecord) -> bool,
     ) -> impl Iterator<Item = (usize, Record)> + '_ {
-        self
-            .records_by_xpac(p)
+        self.records_by_xpac(p)
             .into_iter()
             .enumerate()
             .flat_map(|(xpac, records)| records.into_iter().map(move |record| (xpac, record)))
@@ -92,13 +91,15 @@ impl Database {
             .into_iter()
             .zip(self.iter_mut())
             .map(|(raws, arz)| {
-                arz.as_mut().map(|arz|
-                    raws.into_iter()
-                        .map(|raw| arz.record_id(&raw))
-                        .collect::<Result<Vec<_>, _>>()
-                ).unwrap_or_else(|| Ok(vec![]))
+                arz.as_mut()
+                    .map(|arz| {
+                        raws.into_iter()
+                            .map(|raw| arz.record_id(&raw))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap_or_else(|| Ok(vec![]))
             })
-        .collect::<Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>, _>>()
         {
             Ok(ids) => ids.into_iter().flat_map(|ids| ids.into_iter()),
             Err(e) => {
@@ -108,29 +109,28 @@ impl Database {
         }
     }
 
-    fn records_by_xpac(
-        &mut self,
-        p: impl Fn(&str, &RawRecord) -> bool,
-    ) -> Vec<Vec<Record>> {
+    fn records_by_xpac(&mut self, p: impl Fn(&str, &RawRecord) -> bool) -> Vec<Vec<Record>> {
         match self
             .load_raws_by_xpac()
             .into_iter()
             .zip(self.iter_mut())
             .map(|(raws, arz)| {
-                arz.as_mut().map(|arz| {
-                    raws.into_iter()
-                        .filter_map(|raw| {
-                            let id = arz.record_id(&raw).ok()?;
-                            if p(id.as_str(), &raw) {
-                                Some(arz.resolve(raw))
-                            } else {
-                                None
-                            }
-                        })
-                    .collect::<Result<Vec<_>, _>>()
-                }).unwrap_or_else(|| Ok(vec![]))
+                arz.as_mut()
+                    .map(|arz| {
+                        raws.into_iter()
+                            .filter_map(|raw| {
+                                let id = arz.record_id(&raw).ok()?;
+                                if p(id.as_str(), &raw) {
+                                    Some(arz.resolve(raw))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .unwrap_or_else(|| Ok(vec![]))
             })
-        .collect::<Result<Vec<_>, _>>()
+            .collect::<Result<Vec<_>, _>>()
         {
             Ok(records) => records,
             Err(e) => {
@@ -143,13 +143,16 @@ impl Database {
     fn load_raws_by_xpac(&mut self) -> Vec<Vec<RawRecord>> {
         self.iter_mut()
             .map(|db| {
-                db.as_mut().map(|db| db.iter_records()
-                    .unwrap()
-                    .map(|result| result.unwrap())
-                    .collect::<Vec<_>>()
-                ).unwrap_or_default()
+                db.as_mut()
+                    .map(|db| {
+                        db.iter_records()
+                            .unwrap()
+                            .map(|result| result.unwrap())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
             })
-        .collect::<Vec<_>>()
+            .collect::<Vec<_>>()
     }
 
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<Arz<BufReader<File>>>> + use<'_> {
@@ -169,7 +172,10 @@ impl Database {
                 // Quoted text is never an item name
                 continue;
             }
-            if item_parts.iter().all(|part| value.to_lowercase().contains(&part.to_lowercase())) {
+            if item_parts
+                .iter()
+                .all(|part| value.to_lowercase().contains(&part.to_lowercase()))
+            {
                 possible_tags.push((tag, value));
             }
         }
@@ -190,7 +196,8 @@ impl Database {
         }
         let (tag, name) = possible_tags.pop().expect("possible_tags.len() == 1");
         let tag = DatabaseValue::String(tag.to_string());
-        let records = self.iter_records(|id, _raw| id.starts_with("records/items"))
+        let records = self
+            .iter_records(|id, _raw| id.starts_with("records/items"))
             .filter(|record| record.data.get("itemNameTag") == Some(&tag))
             .map(|record| (record.id.clone(), record))
             .collect::<HashMap<_, _>>();

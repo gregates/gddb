@@ -1,24 +1,19 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 
-use lib_gddb::{Difficulty, MobClass};
 use lib_gddb::affix::Affix;
 use lib_gddb::affix_combo_weights::{AffixComboModifiers, AffixComboWeights};
 use lib_gddb::affix_table::AffixTable;
 use lib_gddb::arz::Record;
 use lib_gddb::loot_table::LootTable;
+use lib_gddb::{Difficulty, MobClass};
 
-use crate::{
-    AffixesToShow,
-    ChallengeLayer,
-    CHALLENGE_LAYER_EASY,
-    CHALLENGE_LAYER_HARD,
-    CHALLENGE_LAYER_ROGUELIKE,
-    CHALLENGE_LAYER_ENDLESS,
-    GAME_RANDOMIZER_WEIGHTS,
-};
 use crate::database::Database;
 use crate::util::TAGS;
+use crate::{
+    AffixesToShow, CHALLENGE_LAYER_EASY, CHALLENGE_LAYER_ENDLESS, CHALLENGE_LAYER_HARD,
+    CHALLENGE_LAYER_ROGUELIKE, ChallengeLayer, GAME_RANDOMIZER_WEIGHTS,
+};
 
 const ZERO_THRESHHOLD: f64 = 0.00000000001f64;
 
@@ -36,14 +31,16 @@ pub fn main(
     let tags = &*TAGS;
     let loot_table = resolve_loot_table(db, record);
     let loot_table = LootTable::from(&loot_table);
-    let affixes = db.iter_records(|_, raw| raw.kind == "LootRandomizer")
+    let affixes = db
+        .iter_records(|_, raw| raw.kind == "LootRandomizer")
         .map(|record| Affix::from(record))
         .collect::<Vec<_>>();
     let affix_lookup = affixes
         .iter()
         .map(|affix| (affix.id.clone(), affix))
         .collect::<HashMap<_, _>>();
-    let affix_tables = db.iter_records(|_, raw| raw.kind == "LootRandomizerTable")
+    let affix_tables = db
+        .iter_records(|_, raw| raw.kind == "LootRandomizerTable")
         .map(|record| AffixTable::from(&record))
         .collect::<Vec<_>>();
     let affix_table_lookup = affix_tables
@@ -61,10 +58,11 @@ pub fn main(
     let modifiers = if vendor {
         AffixComboWeights::default()
     } else {
-        let is_chest = is_chest || match challenge {
-            ChallengeLayer::Crucible | ChallengeLayer::ShatteredRealm => true,
-            _ => false,
-        };
+        let is_chest = is_chest
+            || match challenge {
+                ChallengeLayer::Crucible | ChallengeLayer::ShatteredRealm => true,
+                _ => false,
+            };
         modifiers.get(difficulty, class, is_chest)
     };
 
@@ -96,7 +94,8 @@ pub fn main(
             }
         }
         AffixesToShow::All => {
-            let mut resolved = loot_table.resolve(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
+            let mut resolved =
+                loot_table.resolve(100u32, &modifiers, &affix_table_lookup, &affix_lookup);
             resolved.sort_by(|(_, _, a), (_, _, b)| a.total_cmp(&b).reverse());
             for (prefix, suffix, chance) in resolved {
                 if !zero && chance < ZERO_THRESHHOLD {
@@ -117,20 +116,30 @@ pub fn main(
 }
 
 fn resolve_loot_table(db: &mut Database, record: OsString) -> Record {
-
     if is_path(&record) {
         db.get_record(record)
     } else {
         let (name, records) = db.lookup_item(record);
-        let Some((item_id, _item)) = records.into_iter().max_by_key(|(_id, record)| record.data["itemLevel"].as_int().unwrap_or(0)) else {
+        let Some((item_id, _item)) = records
+            .into_iter()
+            .max_by_key(|(_id, record)| record.data["itemLevel"].as_int().unwrap_or(0))
+        else {
             eprintln!("No matching items found");
             std::process::exit(0);
         };
-        let mut loot_tables = db.iter_records(|_, raw| raw.kind == "LootItemTable_DynWeight")
-            .filter(|record| record.data.iter().any(|(_, val)| val.as_string().as_ref() == Some(&item_id)))
+        let mut loot_tables = db
+            .iter_records(|_, raw| raw.kind == "LootItemTable_DynWeight")
+            .filter(|record| {
+                record
+                    .data
+                    .iter()
+                    .any(|(_, val)| val.as_string().as_ref() == Some(&item_id))
+            })
             .collect::<Vec<_>>();
         if loot_tables.len() > 1 {
-            eprintln!("WARNING: Found multiple loot tables for {name}; using last table in this list:");
+            eprintln!(
+                "WARNING: Found multiple loot tables for {name}; using last table in this list:"
+            );
             for table in loot_tables.iter() {
                 eprintln!("  {}", table.id);
             }
@@ -146,5 +155,3 @@ fn resolve_loot_table(db: &mut Database, record: OsString) -> Record {
 fn is_path(maybe_path: &OsString) -> bool {
     maybe_path.to_string_lossy().ends_with(".dbr")
 }
-
-
