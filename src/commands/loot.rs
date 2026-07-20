@@ -5,15 +5,18 @@ use lib_gddb::affix::Affix;
 use lib_gddb::affix_combo_weights::{AffixComboModifiers, AffixComboWeights};
 use lib_gddb::affix_table::AffixTable;
 use lib_gddb::arz::Record;
+use lib_gddb::ascension_affix_swap::AscensionAffixSwap;
 use lib_gddb::loot_table::LootTable;
 use lib_gddb::{Difficulty, MobClass};
 
 use crate::database::Database;
 use crate::util::TAGS;
 use crate::{
-    AffixesToShow, CHALLENGE_LAYER_EASY, CHALLENGE_LAYER_ENDLESS, CHALLENGE_LAYER_HARD,
-    CHALLENGE_LAYER_ROGUELIKE, ChallengeLayer, GAME_RANDOMIZER_WEIGHTS,
+    AffixAffinity, AffixesToShow, CHALLENGE_LAYER_EASY, CHALLENGE_LAYER_ENDLESS,
+    CHALLENGE_LAYER_HARD, CHALLENGE_LAYER_ROGUELIKE, ChallengeLayer, GAME_RANDOMIZER_WEIGHTS,
 };
+
+const ASCENSION_AFFIX_SWAP_LISTS: &str = "records/items/lootaffixes/ascensionaffixswaplists";
 
 const ZERO_THRESHHOLD: f64 = 0.00000000001f64;
 
@@ -27,10 +30,19 @@ pub fn main(
     affixes_to_show: AffixesToShow,
     vendor: bool,
     zero: bool,
+    altar_swap: Option<AffixAffinity>,
 ) {
     let tags = &*TAGS;
     let loot_table = resolve_loot_table(db, record);
-    let loot_table = LootTable::from(&loot_table);
+    let mut loot_table = LootTable::from(&loot_table);
+    if let Some(affinity) = altar_swap {
+        let prefix = format!("{ASCENSION_AFFIX_SWAP_LISTS}/{}/", affinity.as_str());
+        let swaps = db
+            .iter_records(|id, _| id.starts_with(&prefix))
+            .map(|record| AscensionAffixSwap::from(&record))
+            .collect::<Vec<_>>();
+        loot_table.apply_affix_swaps(&swaps);
+    }
     let affixes = db
         .iter_records(|_, raw| raw.kind == "LootRandomizer")
         .map(|record| Affix::from(record))

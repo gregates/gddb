@@ -83,6 +83,9 @@ enum Action {
         /// Use chest modifiers, e.g., BossChest for enemy=Boss.
         /// Always true in crucible or sr.
         chest: bool,
+        #[arg(short = 's', long, value_parser = parse_affix_affinity)]
+        /// Apply ascension altar affix table swaps for a damage type, e.g., pets, aether, or poison.
+        swap: Option<AffixAffinity>,
         #[arg(short, long, default_value_t)]
         /// Show vendor affix tables (no modifiers). Overrides difficulty, dropper, and challenge.
         vendor: bool,
@@ -183,6 +186,7 @@ fn main() {
             affix,
             vendor,
             zero,
+            swap,
             ..
         } => commands::loot(
             &mut db,
@@ -194,6 +198,7 @@ fn main() {
             affix,
             vendor,
             zero,
+            swap,
         ),
         Action::Item { name } => commands::item(&mut db, name),
         Action::Show { path, all } => commands::show(&mut db, path, all),
@@ -265,6 +270,77 @@ impl From<MobClass> for lib_gddb::MobClass {
             MobClass::Common => lib_gddb::MobClass::Common,
             MobClass::Boss => lib_gddb::MobClass::Boss,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AffixAffinity {
+    Aether,
+    Bleed,
+    Chaos,
+    Cold,
+    Fire,
+    Lightning,
+    Pets,
+    Physical,
+    Pierce,
+    Poison,
+    Vitality,
+}
+
+const AFFIX_AFFINITY_NAMES: &[(&str, AffixAffinity)] = &[
+    ("aether", AffixAffinity::Aether),
+    ("acid", AffixAffinity::Poison),
+    ("bleed", AffixAffinity::Bleed),
+    ("chaos", AffixAffinity::Chaos),
+    ("cold", AffixAffinity::Cold),
+    ("fire", AffixAffinity::Fire),
+    ("lightning", AffixAffinity::Lightning),
+    ("pets", AffixAffinity::Pets),
+    ("physical", AffixAffinity::Physical),
+    ("pierce", AffixAffinity::Pierce),
+    ("poison", AffixAffinity::Poison),
+    ("vitality", AffixAffinity::Vitality),
+];
+
+impl AffixAffinity {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Aether => "aether",
+            Self::Bleed => "bleed",
+            Self::Chaos => "chaos",
+            Self::Cold => "cold",
+            Self::Fire => "fire",
+            Self::Lightning => "lightning",
+            Self::Pets => "pets",
+            Self::Physical => "physical",
+            Self::Pierce => "pierce",
+            Self::Poison => "poison",
+            Self::Vitality => "vitality",
+        }
+    }
+}
+
+fn parse_affix_affinity(input: &str) -> Result<AffixAffinity, String> {
+    let input = input.to_lowercase();
+    let matches = AFFIX_AFFINITY_NAMES
+        .iter()
+        .filter(|(name, _)| name.starts_with(&input))
+        .copied()
+        .collect::<Vec<_>>();
+    let first = match matches.first() {
+        Some((_, affinity)) => *affinity,
+        None => return Err(format!("unknown affix affinity '{input}'")),
+    };
+    if matches.iter().all(|(_, affinity)| *affinity == first) {
+        Ok(first)
+    } else {
+        let names = matches
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>()
+            .join(", ");
+        Err(format!("ambiguous affix affinity '{input}'; matches {names}"))
     }
 }
 

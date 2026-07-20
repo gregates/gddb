@@ -147,6 +147,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "lib_gddb",
+ "libc",
  "regex",
 ]
 
@@ -190,7 +191,7 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 [[package]]
 name = "lib_gddb"
 version = "0.1.0"
-source = "git+https://github.com/gregates/lib-gddb.git#cc349077aa2859533dcb967042ce1080bfef4d63"
+source = "git+https://github.com/gregates/lib-gddb.git#c52b8d963b50db87399a5515a86bcc56861875b8"
 dependencies = [
  "indexmap",
  "lz4",
