@@ -139,6 +139,12 @@ impl SourceFilter {
 }
 
 fn main() {
+    // Restore the default SIGPIPE handler so we terminate silently (like `head`,
+    // `cat`, etc.) when downstream closes the pipe, instead of panicking on the
+    // EPIPE that Rust's default SIG_IGN turns write failures into.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     clap_complete::CompleteEnv::with_factory(Args::command).complete();
     let args = Args::parse();
 
