@@ -17,6 +17,7 @@ use crate::{
 };
 
 const ASCENSION_AFFIX_SWAP_LISTS: &str = "records/items/lootaffixes/ascensionaffixswaplists";
+const ENDLESS_DUNGEON_LOOT_TABLES: &str = "records/endlessdungeon/loottables/";
 
 const ZERO_THRESHHOLD: f64 = 0.00000000001f64;
 
@@ -140,7 +141,10 @@ fn resolve_loot_table(db: &mut Database, record: OsString) -> Record {
             std::process::exit(0);
         };
         let mut loot_tables = db
-            .iter_records(|_, raw| raw.kind == "LootItemTable_DynWeight")
+            .iter_records(|id, raw| {
+                raw.kind == "LootItemTable_DynWeight"
+                    && !id.starts_with(ENDLESS_DUNGEON_LOOT_TABLES)
+            })
             .filter(|record| {
                 record
                     .data
